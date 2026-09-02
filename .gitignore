@@ -1,0 +1,6 @@
+# files
+.env
+
+# directories
+.venv/
+__pychache__/
