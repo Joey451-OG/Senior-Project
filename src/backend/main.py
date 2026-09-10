@@ -4,6 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import psutil
 import json
 import asyncio
+import UserUtils
 
 class ConnectionManager:
     def __init__(self):
@@ -27,4 +28,32 @@ class ConnectionManager:
         for d in dead:
             self.disconnect(d)
 
+manager = ConnectionManager()
+scheduler = AsyncIOScheduler()
+
+async def pollAndBroadcast():
+    await manager.broadcast(UserUtils.getCpuUtilization())
+
+
+@asynccontextmanager
+async def lifespan(api: FastAPI):
+    scheduler.add_job(pollAndBroadcast, "interval", seconds=1, id="cpu_broadcast")
+    scheduler.start()
+
+    yield
+
+    scheduler.shutdown()
+
+api = FastAPI(lifespan=lifespan)
+
+
+@api.websocket("/ws/cpu-load")
+async def cpuLoadSocket(websocket: WebSocket):
+    await manager.connect(websocket)
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
 

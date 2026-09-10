@@ -1,15 +1,16 @@
 import psutil
 import apscheduler
 
-from backend.PROJECTTypes import TemperatureReading, UsersSession
+from PROJECTTypes import TemperatureReading, UsersSession
 
 # Setup
 psutil.cpu_percent()
 CPU_SENSOR_NAME = ("coretemp", "k10temp", "cpu_thermal")
 
 
-def getCpuUtilization() -> float:
-    return psutil.cpu_percent()
+def getCpuUtilization() -> dict[str, str | float]:
+    payload = {"type": "cpu", "value": psutil.cpu_percent()}
+    return payload
 
 def getCpuTemperatures() -> dict[str, list[TemperatureReading]] | None:
     temps = psutil.sensors_temperatures()
@@ -42,7 +43,7 @@ def getUsers() -> list[str | float | None]:
             u.terminal, 
             u.host, 
             u.started, 
-            u.pid
+            int(u.pid)
         ))
 
     return ret_list
