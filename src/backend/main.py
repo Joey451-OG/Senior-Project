@@ -6,7 +6,7 @@ import json
 import asyncio
 import UserUtils
 
-class ConnectionManager:
+class WSConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
 
@@ -28,16 +28,24 @@ class ConnectionManager:
         for d in dead:
             self.disconnect(d)
 
-manager = ConnectionManager()
+ws_cpu_load_man = WSConnectionManager()
+ws_cpu_temp_man = WSConnectionManager()
 scheduler = AsyncIOScheduler()
 
-async def pollAndBroadcast():
-    await manager.broadcast(UserUtils.getCpuUtilization())
 
+# What I do for the sake of containerization
+async def getCpuLoad():
+    await ws_cpu_load_man.broadcast(UserUtils.getCpuUtilization())
 
+async def getCpuTemps():
+    await ws_cpu_temp_man.broadcast(UserUtils.getCpuTemperatures()),
+    
 @asynccontextmanager
 async def lifespan(api: FastAPI):
-    scheduler.add_job(pollAndBroadcast, "interval", seconds=1, id="cpu_broadcast")
+    scheduler.add_job(getCpuLoad, "interval", seconds=1, id="cpu_broadcast")
+    scheduler.add_job(getCpuTemps, "interval", seconds=1, id="cpu_temp")
+
+
     scheduler.start()
 
     yield
@@ -47,13 +55,28 @@ async def lifespan(api: FastAPI):
 api = FastAPI(lifespan=lifespan)
 
 
+
+# NOTE: It may be worth combining these two
 @api.websocket("/ws/cpu-load")
-async def cpuLoadSocket(websocket: WebSocket):
-    await manager.connect(websocket)
+async def cpuLoadSocket(ws: WebSocket):
+    await ws_cpu_load_man.connect(ws)
 
     try:
         while True:
-            await websocket.receive_text()
+            await ws.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        ws_cpu_load_man.disconnect(ws)
+
+@api.websocket("/ws/cpu-temp")
+async def cpuTemperatureSocket(ws: WebSocket):
+    await ws_cpu_temp_man.connect(ws)
+
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        ws_cpu_load_man.disconnect(ws)
+
+
+    
 
