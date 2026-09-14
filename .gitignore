@@ -3,7 +3,7 @@
 
 # directories
 .venv/
-__pychache__/
+**/__pycache__/
 
 # Logs
 logs
