@@ -1,14 +1,18 @@
 <script setup lang="ts">
+
     const message = "Vue"
     const name = "Joey Garneau"
     const year = 2026
+
 </script>
 
 <template>
     <main>
-	<h1>Hello {{ message }}</h1>
+    <h1>Hello World!</h1>
     </main>
 
+    <temperature-reading/>
+    <load-reading/>
     <footer>
 	<p>&copy; {{ name }} {{ year }}</p>
     </footer>
@@ -17,7 +21,7 @@
 <!--The scoped keyword here means this style only applies to this file-->
 <style scoped>
     h1 {
-	font-weight: bold;
+	font-weight: boldmodule;
 	text-align: center;
     }
 

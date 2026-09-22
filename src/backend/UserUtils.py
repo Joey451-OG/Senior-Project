@@ -8,11 +8,11 @@ psutil.cpu_percent()
 CPU_SENSOR_NAME = ("coretemp", "k10temp", "cpu_thermal")
 
 
-def getCpuUtilization() -> dict[str, str | float]:
+def getCpuUtilization() -> dict:
     payload = {"type": "cpu", "value": psutil.cpu_percent()}
     return payload
 
-def getCpuTemperatures() -> dict[str, list[TemperatureReading]] | None:
+def getCpuTemperatures() -> dict:
     temps = psutil.sensors_temperatures()
 
     if temps:
@@ -32,9 +32,12 @@ def getCpuTemperatures() -> dict[str, list[TemperatureReading]] | None:
 
             return ret_dictionary
 
+    return {}
 
-def getUsers() -> list[str | float | None]:
+
+def getUsers() -> dict:
     users = psutil.users()
+    packet = {"name": "Users Websocket", "data": None}
     ret_list = []
 
     for u in users:
@@ -46,5 +49,6 @@ def getUsers() -> list[str | float | None]:
             int(u.pid)
         ))
 
-    return ret_list
+    packet["data"] = ret_list
+    return packet
 
