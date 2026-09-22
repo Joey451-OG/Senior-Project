@@ -16,6 +16,13 @@ export function useTemperatureReading() {
 
         onMessage(ws, event) {
             try {
+                if (JSON.parse(event.data).type == 'ping') {
+                    // found a ping packet, respond
+                    console.log("SENDING PING")
+                    ws.send(JSON.stringify('pong'))
+                    return
+                }
+
                 data.value = JSON.parse(event.data) as TemperatureReading
             } catch (err) {
                 console.error('Failed to parse temperature-reading message', err)
@@ -40,6 +47,13 @@ export function useLoadReading() {
 
         onMessage(ws, event) {
             try {
+                if (JSON.parse(event.data).type == 'ping') {
+                    // found a ping packet, respond
+                    console.log("SENDING PING")
+                    ws.send(JSON.stringify('pong'))
+                    return
+                }
+
                 data.value = JSON.parse(event.data) as LoadReading
             } catch (err) {
                 console.error('Failed to parse load-reading message', err)
