@@ -86,7 +86,7 @@ async def runWebsocketHeartbeatLoop(ws: WebSocket, connection_manager: WSConnect
             try:
                 await asyncio.wait_for(ws.receive_text(), timeout=heartbeat_interval_seconds)
             except asyncio.TimeoutError:
-                print(f"[main.py]: sent ping")
+                #print(f"[main.py]: sent ping")
                 is_client_alive = await pingClientAndAwaitReply(ws)
                 if not is_client_alive:
                     await ws.close()
