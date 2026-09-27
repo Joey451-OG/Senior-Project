@@ -1,11 +1,14 @@
 import { ref } from 'vue'
 import { useWebSocket } from '@vueuse/core'
-import { type LoadReading, type TemperatureReading } from '@/types/projectTypes'
+import { type LoadReading, type TemperatureReading } from '@/globals/projectTypes'
+import { domain, port } from "@/globals/projectVars";
 
 export function useTemperatureReading() {
     const data = ref<TemperatureReading | null>(null)
 
-    const { status, close, open } = useWebSocket('ws://localhost:8000/ws/cpu-temp', {
+    const ws_url: string = `ws://${domain}:${[port]}/ws/cpu-temp`
+
+    const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
             retries: 5,
             delay: 1000,
@@ -36,7 +39,9 @@ export function useTemperatureReading() {
 export function useLoadReading() {
     const data = ref<LoadReading | null>(null)
 
-    const { status, close, open } = useWebSocket('ws://localhost:8000/ws/cpu-load', {
+    const ws_url: string = `ws://${domain}:${[port]}/ws/cpu-load`
+
+    const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
             retries: 5,
             delay: 1000,
