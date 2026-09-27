@@ -4,8 +4,8 @@ import sys
 import websockets
 
 
-async def listen(socket_path: str, domain: str):
-    async with websockets.connect(f"ws://{domain}:8000{socket_path}") as ws:
+async def listen(socket_path: str, domain: str, port: int):
+    async with websockets.connect(f"ws://{domain}:{port}{socket_path}") as ws:
         while True:
             message = await ws.recv()
             print(message)
@@ -25,6 +25,33 @@ def isHeartbeatPing(message: str) -> bool:
 
 
 if __name__ == "__main__":
-    socket_path = sys.argv[1]
-    domain = sys.argv[2] if len(sys.argv) == 3 else "localhost"
-    asyncio.run(listen(socket_path, domain))
+   # socket_path = sys.argv[1]
+   # domain = sys.argv[2] if len(sys.argv) == 3 else "localhost"
+   # asyncio.run(listen(socket_path, domain))
+
+    possible_flags = ["-d", "-p"]
+    path = sys.argv[1]
+    domain = "localhost"
+    port = 3002
+
+    for flag in possible_flags:
+        for i in range(len(sys.argv)):
+            if sys.argv[i].lower() == flag:
+                error_word = ""
+                try:
+                    match flag:
+                        case "-d":
+                            error_word = "domain"
+                            domain = sys.argv[i + 1] if type(sys.argv[i + 1]) == str else raise ValueError
+                        case "-p":
+                            error_word = "port"
+                            port = sys.argv[i + 1] if type(sys.argv[i + 1]) == int else raise ValueError
+                except IndexError or ValueError:
+                    print(f"ERROR: Please provide a/an {error_word} with {flag}")
+                    return 2
+
+   asyncio.run(listen(path, domain, port)) 
+
+
+
+
