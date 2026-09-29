@@ -1,6 +1,10 @@
 import { ref } from 'vue'
 import { useWebSocket } from '@vueuse/core'
-import { type LoadReading, type TemperatureReading } from '@/globals/projectTypes'
+import { 
+    type LoadReading, 
+    type TemperatureReading,
+    type UserSession
+} from '@/globals/projectTypes'
 import { domain, port } from "@/globals/projectVars";
 
 export function useTemperatureReading() {
@@ -60,6 +64,38 @@ export function useLoadReading() {
                 }
 
                 data.value = JSON.parse(event.data) as LoadReading
+            } catch (err) {
+                console.error('Failed to parse load-reading message', err)
+            }
+        },
+    })
+
+    return { data, status, close, open }    
+}
+
+export function useUserSession() {
+    const data = ref<UserSession | null>(null)
+    const ws_url: string = `ws://${domain}:${port}/ws/users`
+
+    const { status, close, open } = useWebSocket(ws_url, {
+        autoReconnect: {
+            retries: 5,
+            delay: 1000,
+            onFailed() {
+                console.error('load-reading socket: failed to reconnect after 5 attempts')
+            },
+        },
+
+        onMessage(ws, event) {
+            try {
+                if (JSON.parse(event.data).type == 'ping') {
+                    // found a ping packet, respond
+                    console.log("SENDING PING")
+                    ws.send(JSON.stringify('pong'))
+                    return
+                }
+
+                data.value = JSON.parse(event.data) as UserSession
             } catch (err) {
                 console.error('Failed to parse load-reading message', err)
             }

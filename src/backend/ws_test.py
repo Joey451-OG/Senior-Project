@@ -51,6 +51,7 @@ def main() -> int:
                     return 2
 
     asyncio.run(listen(path, domain, port))
+    return 1
 
 
 if __name__ == "__main__":
