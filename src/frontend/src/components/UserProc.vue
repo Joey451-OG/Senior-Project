@@ -1,7 +1,7 @@
 <script setup lang="ts">
-    import { useUserSession } from '@/composables/useDashboardWS'
+    import { useUserProcs } from '@/composables/useDashboardWS'
 
-    const { data, status } = useUserSession();
+    const { data, status } = useUserProcs();
 </script>
 
 <template>

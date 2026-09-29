@@ -3,7 +3,7 @@ import { useWebSocket } from '@vueuse/core'
 import { 
     type LoadReading, 
     type TemperatureReading,
-    type UserSession
+    type UserProc
 } from '@/globals/projectTypes'
 import { domain, port } from "@/globals/projectVars";
 
@@ -73,9 +73,9 @@ export function useLoadReading() {
     return { data, status, close, open }    
 }
 
-export function useUserSession() {
-    const data = ref<UserSession | null>(null)
-    const ws_url: string = `ws://${domain}:${port}/ws/users`
+export function useUserProcs() {
+    const data = ref<UserProc[] | null>(null)
+    const ws_url: string = `ws://${domain}:${port}/ws/user-procs`
 
     const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
@@ -94,8 +94,12 @@ export function useUserSession() {
                     ws.send(JSON.stringify('pong'))
                     return
                 }
+                
+                data.value = JSON.parse(event.data) as UserProc[]
 
-                data.value = JSON.parse(event.data) as UserSession
+                // for (var item in event.data) {
+                //     data.value.push(JSON.parse(item) as UserProc)
+                // }
             } catch (err) {
                 console.error('Failed to parse load-reading message', err)
             }

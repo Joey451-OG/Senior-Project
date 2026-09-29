@@ -54,8 +54,8 @@ async def getCpuLoad():
 async def getCpuTemps():
     await ws_cpu_temp_man.broadcast(UserUtils.getCpuTemperatures())
 
-async def getUsers():
-    await ws_users.broadcast(UserUtils.getUsers())
+async def getUserProcs():
+    await ws_users.broadcast(UserUtils.getUserProcs())
 
 
 async def pingClientAndAwaitReply(ws: WebSocket) -> bool:
@@ -104,7 +104,7 @@ async def runWebsocketHeartbeatLoop(ws: WebSocket, connection_manager: WSConnect
 async def lifespan(api: FastAPI):
     scheduler.add_job(getCpuLoad, "interval", seconds=1, id="cpu_broadcast")
     scheduler.add_job(getCpuTemps, "interval", seconds=1, id="cpu_temp")
-    scheduler.add_job(getUsers, "interval", seconds=1, id="users")
+    scheduler.add_job(getUserProcs, "interval", seconds=1, id="users_and_procs")
 
     scheduler.start()
 
@@ -127,7 +127,7 @@ async def cpuTemperatureSocket(ws: WebSocket):
     await runWebsocketHeartbeatLoop(ws, ws_cpu_temp_man)
 
 
-@api.websocket("/ws/users")
+@api.websocket("/ws/user-procs")
 async def usersSocket(ws: WebSocket):
     await ws_users.connect(ws)
     await runWebsocketHeartbeatLoop(ws, ws_users)

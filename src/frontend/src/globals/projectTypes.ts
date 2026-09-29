@@ -10,6 +10,15 @@ export interface UserSession {
     pid: number | null
 }
 
+export interface UserProc {
+    pid: number,
+    name: string,
+    username: string,
+    exe: string,
+    cpu_percent: number,
+    memory_percent: number
+}
+
 export interface LoadReading {
     type: string | null,
     value: number | null

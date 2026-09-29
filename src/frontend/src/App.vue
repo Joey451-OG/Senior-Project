@@ -13,7 +13,7 @@
 
     <temperature-reading/>
     <load-reading/>
-    <user-session/>
+    <user-procs/>
     <footer>
 	<p>&copy; {{ name }} {{ year }}</p>
     </footer>

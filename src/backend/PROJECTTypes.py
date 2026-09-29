@@ -11,3 +11,11 @@ class UsersSession(NamedTuple):
     host: str | None
     started: float | None
     pid: int | None
+
+class UserProcesses(NamedTuple):
+    pid: int | None
+    name: str | None
+    username: str | None
+    exe: str | None
+    cpu_percent: str | None
+    memory_percent: str | None
