@@ -50,5 +50,6 @@ def getUsers() -> dict:
         ))
 
     packet["data"] = ret_list
+    packet["data"] = users
     return packet
 
