@@ -1,6 +1,7 @@
 import psutil
 import getpass
 import apscheduler
+import crontab
 
 from PROJECTTypes import TemperatureReading, UsersSession, UserProcesses
 
@@ -46,6 +47,7 @@ def getUserProcs() -> dict:
     packet = {"name": "Users Websocket", "data": None}
     ret_list = []
 
+    # as of now, this only gets one user. This will need to be updated for all logged in users
     user = getpass.getuser()
     
     for proc in psutil.process_iter():
@@ -74,4 +76,22 @@ def getUserProcs() -> dict:
 
     packet["data"] = ret_list
     return packet
+
+def getCurrentCronJobs():
+
+    ret_dict = {"name": "Cron Jobs Websocket", "data": None}
+
+    # as of now, this only gets one user. This will need to be updated for all logged in users
+    user = getpass.getuser()
+    cron = crontab.CronTab(user=user)
+
+
+    for job in cron:
+        data = []
+        data.append(user)
+        data.append(job.render())
+
+        ret_dict["data"].append(data)
+
+    return ret_dict
 

@@ -35,6 +35,7 @@ class WSConnectionManager:
 ws_cpu_load_man = WSConnectionManager()
 ws_cpu_temp_man = WSConnectionManager()
 ws_users = WSConnectionManager()
+
 scheduler = AsyncIOScheduler()
 
 # How long we wait for any client message before treating the socket as idle
@@ -56,7 +57,6 @@ async def getCpuTemps():
 
 async def getUserProcs():
     await ws_users.broadcast(UserUtils.getUserProcs())
-
 
 async def pingClientAndAwaitReply(ws: WebSocket) -> bool:
     """
