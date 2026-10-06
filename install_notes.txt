@@ -1,0 +1,1 @@
+User, who is assumed to be sudo, will need to exsist within the "waru" group.
