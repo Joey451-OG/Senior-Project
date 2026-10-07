@@ -21,13 +21,19 @@ should reconnect when it finds its connection closed.
     failure:   {"ok": false, "error": "Unknown user"}
 
 Commands:
-    snapshot   hash and enabled job count of one user's crontab
+    snapshot       hash and enabled job count of one user's crontab
+                   args: {"username": str}
+    list_crontabs  every user that has a crontab, with its hash, enabled job count and jobs
+                   args: none
+                   result: {"crontabs": [{"username", "content_hash", "enabled_job_count",
+                                          "jobs": [{"schedule", "command", "comment", "isEnabled"}]}],
+                            "failed_usernames": [str]}
 
 Dependencies:
     pip install python-crontab
 
 Environment variables (all optional):
-    CRON_HELPER_SOCKET           Unix socket path (default: /run/dashboard/cron_helper.sock)
+    CRON_HELPER_SOCKET           Unix socket path (default: /run/waru-dashboard/cron_helper.sock)
     CRON_HELPER_ALLOWED_UID      if set, only this peer uid may connect (checked via SO_PEERCRED,
                                  on top of the socket's 0660 file permissions). Strongly
                                  recommended: set it to the uid of the main API's service user.
@@ -168,7 +174,7 @@ def readCrontabSnapshot(username: str) -> dict:
 
 
 def handleSnapshotCommand(request_payload: dict) -> dict:
-    username = resolveLocalUsername(request_payload["username"])
+    username = resolveLocalUsername(request_payload.get("username"))
     try:
         return readCrontabSnapshot(username)
     except Exception:

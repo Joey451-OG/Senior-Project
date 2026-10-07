@@ -14,6 +14,7 @@
     <temperature-reading/>
     <load-reading/>
     <user-procs/>
+    <crontab-list/>
     <footer>
 	<p>&copy; {{ name }} {{ year }}</p>
     </footer>
