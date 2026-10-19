@@ -1,0 +1,96 @@
+:root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #f0f1f4;
+    --border: #e1e3e8;
+    --text: #1b1f27;
+    --text-muted: #6b7280;
+    --accent: #e8730c;
+    --temp: #1a97a8;
+    --ok: #1f9d6b;
+    --warn: #c9a400;
+    --danger: #d64545;
+    --track: #e6e8ed;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+    --radius: 12px;
+    --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+
+    color-scheme: light;
+}
+
+/* data-theme is set on <html> by useDark in App.vue */
+:root[data-theme="dark"] {
+    --bg: #0f1218;
+    --surface: #171b23;
+    --surface-2: #1e232d;
+    --border: #2a303c;
+    --text: #e6e8ec;
+    --text-muted: #8b93a3;
+    --accent: #ff8a2b;
+    --temp: #3cc4d4;
+    --ok: #34c08a;
+    --warn: #f2d03b;
+    --danger: #f06464;
+    --track: #262c37;
+    --shadow: none;
+
+    color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Shared card chrome used by every dashboard panel */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px 20px;
+    min-width: 0;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.card-title {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.muted {
+    color: var(--text-muted);
+}
+
+.mono {
+    font-family: var(--mono);
+}
+
+.placeholder {
+    padding: 32px 0;
+    text-align: center;
+    color: var(--text-muted);
+}

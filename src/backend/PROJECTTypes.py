@@ -18,8 +18,11 @@ class UserProcesses(NamedTuple):
     name: str | None
     username: str | None
     exe: str | None
-    cpu_percent: str | None
-    memory_percent: str | None
+    # All percentages are a share of the whole machine over the last sample interval
+    cpu_percent: float | None
+    memory_percent: float | None
+    disk_percent: float | None   # None when the process's io counters aren't readable
+    io_percent: float | None
 
 
 # --- Cron (shapes returned by the privileged cron helper, re-exposed by /papi) ---
@@ -47,3 +50,18 @@ class CrontabListing(BaseModel):
 class CronChangeEvent(BaseModel):
     version: int
     changed_usernames: list[str]
+
+class CrontabContent(BaseModel):
+    username: str
+    content: str
+    content_hash: str
+
+class CrontabWriteRequest(BaseModel):
+    content: str
+    # content_hash of the version the editor started from; the write is refused if it no longer matches.
+    expected_hash: str
+
+class KilledProcess(BaseModel):
+    pid: int
+    username: str
+    signal: str

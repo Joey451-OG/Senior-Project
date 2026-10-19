@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
  
 from routes.WebsocketRoute import websocket_router, registerBroadcastJobs
-from routes.PrivilegedAPIEndpointRoute import p_api_endpoint_router, registerCronPollJob, cron_helper_client
+from routes.PrivilegedAPIEndpointRoute import p_api_endpoint_router, registerCronPollJob, cron_helper_client, process_helper_client
  
 # One scheduler for the whole app; each router registers its own jobs on it.
 scheduler = AsyncIOScheduler()
@@ -20,6 +20,7 @@ async def lifespan(application: FastAPI):
  
     scheduler.shutdown()
     await cron_helper_client.close()
+    await process_helper_client.close()
  
  
 api = FastAPI(lifespan=lifespan)

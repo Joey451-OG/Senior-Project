@@ -1,8 +1,9 @@
 """
 Privileged cron helper (stateless request/response).
 
-This process runs with the privileges needed to read other users' crontabs and
-does nothing else. It keeps no state, runs no background loop, and never talks
+This process runs with the privileges needed to read and edit other users'
+crontabs and does nothing else. It never edits root's crontab (or that of any
+other uid-0 account). It keeps no state, runs no background loop, and never talks
 to browsers. Only the unprivileged main API connects to it, over a Unix domain
 socket. Polling, version counters, and Server-Sent Events all live in the main
 API.
@@ -28,15 +29,27 @@ Commands:
                    result: {"crontabs": [{"username", "content_hash", "enabled_job_count",
                                           "jobs": [{"schedule", "command", "comment", "isEnabled"}]}],
                             "failed_usernames": [str]}
+    read_crontab   full text of one user's crontab, for editing
+                   args: {"username": str}
+                   result: {"username", "content", "content_hash"}
+    write_crontab  replace one non-root user's crontab, but only if it still matches
+                   expected_hash (the content_hash the editor started from); otherwise
+                   fails with "Crontab changed since it was read" and writes nothing.
+                   Every line must parse; invalid lines are rejected, not commented out.
+                   args: {"username": str, "content": str, "expected_hash": str}
+                   result: same as read_crontab, for the newly written crontab
 
 Dependencies:
     pip install python-crontab
 
 Environment variables (all optional):
     CRON_HELPER_SOCKET           Unix socket path (default: /run/waru-dashboard/cron_helper.sock)
-    CRON_HELPER_ALLOWED_UID      if set, only this peer uid may connect (checked via SO_PEERCRED,
-                                 on top of the socket's 0660 file permissions). Strongly
-                                 recommended: set it to the uid of the main API's service user.
+    CRON_HELPER_USER_GROUP       group that owns the socket (default: waru)
+
+Access: only processes in the user group (primary or supplementary) may connect.
+This is enforced twice: the socket file is 0660 root:<group>, and every connection's
+groups are checked again from the kernel's socket credentials (SO_PEERCRED +
+SO_PEERGROUPS) before any request is read.
 
 Quick test once running:
     echo '{"command": "snapshot", "username": "'$USER'"}' | socat - UNIX-CONNECT:/run/waru-dashboard/cron_helper.sock
@@ -53,6 +66,7 @@ import signal
 import socket
 import stat
 import struct
+import threading
 from contextlib import suppress
 from typing import Callable, Optional
 
@@ -61,14 +75,19 @@ from crontab import CronTab
 logger = logging.getLogger("cron_privileged_helper")
 
 unix_socket_path = os.environ.get("CRON_HELPER_SOCKET", "/run/waru-dashboard/cron_helper.sock")
-allowed_peer_uid_text = os.environ.get("CRON_HELPER_ALLOWED_UID")
 user_group = os.environ.get("CRON_HELPER_USER_GROUP", "waru")
-allowed_peer_uid = int(allowed_peer_uid_text) if allowed_peer_uid_text is not None else None
 
 maximum_concurrent_connections = 8
-maximum_request_line_bytes = 4096
+# write_crontab carries a whole crontab on one line, so leave room beyond it for JSON escaping.
+maximum_crontab_bytes = 64 * 1024
+maximum_request_line_bytes = 4 * maximum_crontab_bytes
 idle_connection_timeout_seconds = 300.0
 shutdown_grace_period_seconds = 3.0
+
+# Linux's SO_PEERGROUPS (asm-generic/socket.h); Python's socket module doesn't export it.
+so_peergroups_option = getattr(socket, "SO_PEERGROUPS", 59)
+# CPython caps getsockopt buffers at 1024 bytes, i.e. up to 256 supplementary groups.
+maximum_peer_groups_bytes = 1024
 
 crontab_spool_directory_paths = (
     "/var/spool/cron",           # cronie (Fedora/RHEL/Arch): one file per user
@@ -84,18 +103,19 @@ class RequestError(Exception):
 class PrivilegedHelperServer:
     """Accepts connections on the Unix socket and answers one JSON request per line."""
 
-    def __init__(self) -> None:
+    def __init__(self, allowed_group_id: int) -> None:
+        self.allowed_group_id = allowed_group_id
         self.active_connection_count = 0
 
     async def handleClientConnection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         try:
-            if allowed_peer_uid is not None:
-                isPeerAllowed = getPeerUserId(writer) == allowed_peer_uid
-                if not isPeerAllowed:
-                    logger.warning(f"Rejected connection from unexpected peer uid ({getPeerUserId(writer)})")
-                    return
+            peer_group_ids = getPeerGroupIds(writer)
+            isPeerInUserGroup = peer_group_ids is not None and self.allowed_group_id in peer_group_ids
+            if not isPeerInUserGroup:
+                logger.warning("Rejected connection from peer uid %s: not in group %r", getPeerUserId(writer), user_group)
+                return
 
             isOverCapacity = self.active_connection_count >= maximum_concurrent_connections
             if isOverCapacity:
@@ -149,6 +169,14 @@ def resolveLocalUsername(requested_username: str) -> str:
     except (KeyError, ValueError):
         raise RequestError("Unknown user") from None
     return user_entry.pw_name
+
+
+def resolveEditableUsername(requested_username: str) -> str:
+    """Like resolveLocalUsername, but refuses root and any other uid-0 account."""
+    username = resolveLocalUsername(requested_username)
+    if pwd.getpwnam(username).pw_uid == 0:
+        raise RequestError("Refusing to edit root's crontab")
+    return username
 
 
 def readCrontabSnapshot(username: str) -> dict:
@@ -222,6 +250,34 @@ def getPeerUserId(writer: asyncio.StreamWriter) -> Optional[int]:
     return user_id
 
 
+def getPeerGroupIds(writer: asyncio.StreamWriter) -> Optional[set[int]]:
+    """
+    Return every gid (primary + supplementary) the peer process held when it connected,
+    straight from the kernel (SO_PEERCRED + SO_PEERGROUPS). Reading the socket's
+    credentials instead of /proc/<pid> means a recycled pid can't stand in for the peer.
+    Returns None when they can't be read, which callers treat as "not allowed".
+    """
+    client_socket = writer.get_extra_info("socket")
+    if client_socket is None:
+        return None
+    try:
+        credentials_bytes = client_socket.getsockopt(
+            socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+        )
+        supplementary_groups_bytes = client_socket.getsockopt(
+            socket.SOL_SOCKET, so_peergroups_option, maximum_peer_groups_bytes
+        )
+    except OSError:
+        # Includes ERANGE when the peer has more groups than fit in the buffer.
+        return None
+    _process_id, _user_id, primary_group_id = struct.unpack("3i", credentials_bytes)
+    supplementary_group_count = len(supplementary_groups_bytes) // struct.calcsize("I")
+    supplementary_group_ids = struct.unpack(
+        f"{supplementary_group_count}I", supplementary_groups_bytes[: supplementary_group_count * struct.calcsize("I")]
+    )
+    return {primary_group_id, *supplementary_group_ids}
+
+
 def removeStaleSocketFile(socket_path: str) -> None:
     """Remove a leftover socket from a previous run, but never delete anything that isn't a socket."""
     try:
@@ -235,10 +291,13 @@ def removeStaleSocketFile(socket_path: str) -> None:
 
 
 async def runHelper() -> None:
-    if allowed_peer_uid is None:
-        logger.warning("CRON_HELPER_ALLOWED_UID is not set; relying on socket file permissions only")
+    # Look the group up before creating anything, so a missing group fails at startup.
+    try:
+        gid_user_group = grp.getgrnam(user_group).gr_gid
+    except KeyError:
+        raise RuntimeError(f"Group {user_group!r} does not exist; create it and add the main API's user") from None
 
-    helper_server = PrivilegedHelperServer()
+    helper_server = PrivilegedHelperServer(gid_user_group)
     os.makedirs(os.path.dirname(unix_socket_path), exist_ok=True)
     removeStaleSocketFile(unix_socket_path)
 
@@ -254,12 +313,11 @@ async def runHelper() -> None:
     finally:
         os.umask(previous_umask)
 
-    gid_user_group = grp.getgrnam(user_group).gr_gid
-    os.chmod(unix_socket_path, 0o666)
-    
-    # the bellow code may not be needed
-    # leaving the uid as -1 leaves the permission unchanged
+    # Hand the socket to the group, then lock it to owner (root) + group only.
+    # Connecting needs write permission on the socket file, so the kernel itself
+    # rejects anyone outside the group. Leaving the uid as -1 keeps the owner unchanged.
     os.chown(unix_socket_path, uid=-1, gid=gid_user_group)
+    os.chmod(unix_socket_path, 0o660)
     
     stop_event = asyncio.Event()
     running_loop = asyncio.get_running_loop()
@@ -377,10 +435,87 @@ def handleListCrontabsCommand(request_payload: dict) -> dict:
             crontab_dictionaries.append(crontab_details)
     return {"crontabs": crontab_dictionaries, "failed_usernames": failed_usernames}
 
+# Handlers run in worker threads; this keeps two writes from interleaving their
+# hash check and write. (An edit made outside the dashboard can still race us.)
+crontab_write_lock = threading.Lock()
+
+
+def readCrontabContent(username: str) -> dict:
+    """Blocking read of a user's crontab text. Hashed the same way as snapshot/list_crontabs."""
+    rendered_crontab_text = CronTab(user=username).render()
+    return {
+        "username": username,
+        "content": rendered_crontab_text,
+        "content_hash": hashlib.sha256(rendered_crontab_text.encode("utf-8")).hexdigest(),
+    }
+
+
+def handleReadCrontabCommand(request_payload: dict) -> dict:
+    username = resolveLocalUsername(request_payload.get("username"))
+    try:
+        return readCrontabContent(username)
+    except Exception:
+        logger.exception("Failed to read crontab for user %s", username)
+        raise RequestError("Failed to read crontab") from None
+
+
+def parseNewCrontab(new_content) -> CronTab:
+    """Validate client-supplied crontab text and parse it, rejecting anything cron wouldn't run."""
+    isContentString = type(new_content) == str
+    if not isContentString:
+        raise RequestError("content must be a string")
+    if len(new_content.encode("utf-8")) > maximum_crontab_bytes:
+        raise RequestError(f"Crontab is larger than {maximum_crontab_bytes // 1024} KiB")
+    if "\0" in new_content:
+        raise RequestError("Crontab must not contain NUL characters")
+
+    new_crontab = CronTab(tab=new_content)
+    try:
+        # errors=True raises on invalid lines instead of quietly commenting them out.
+        new_crontab.render(errors=True)
+    except ValueError as validation_error:
+        raise RequestError(str(validation_error)) from None
+    return new_crontab
+
+
+def handleWriteCrontabCommand(request_payload: dict) -> dict:
+    username = resolveEditableUsername(request_payload.get("username"))
+    expected_hash = request_payload.get("expected_hash")
+    isExpectedHashString = type(expected_hash) == str and expected_hash != ""
+    if not isExpectedHashString:
+        raise RequestError("expected_hash must be a non-empty string")
+    new_crontab = parseNewCrontab(request_payload.get("content"))
+
+    with crontab_write_lock:
+        try:
+            current_content_hash = readCrontabContent(username)["content_hash"]
+        except Exception:
+            logger.exception("Failed to read crontab for user %s", username)
+            raise RequestError("Failed to read crontab") from None
+        hasCrontabChanged = current_content_hash != expected_hash
+        if hasCrontabChanged:
+            raise RequestError("Crontab changed since it was read")
+
+        try:
+            # Installs through the system crontab binary (crontab -u <user> <file>).
+            new_crontab.write(user=username, errors=True)
+        except Exception:
+            logger.exception("Failed to write crontab for user %s", username)
+            raise RequestError("Failed to write crontab") from None
+        logger.info("Wrote crontab for user %s", username)
+
+        try:
+            return readCrontabContent(username)
+        except Exception:
+            logger.exception("Failed to re-read crontab for user %s", username)
+            raise RequestError("Crontab written, but re-reading it failed") from None
+
 # Each handler is a blocking function that takes the request dictionary and returns a result dictionary.
 command_handlers: dict[str, Callable[[dict], dict]] = {
     "snapshot": handleSnapshotCommand,
     "list_crontabs": handleListCrontabsCommand,
+    "read_crontab": handleReadCrontabCommand,
+    "write_crontab": handleWriteCrontabCommand,
 }
 
 if __name__ == "__main__":

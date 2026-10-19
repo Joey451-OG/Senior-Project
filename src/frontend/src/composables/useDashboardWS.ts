@@ -3,7 +3,8 @@ import { useWebSocket } from '@vueuse/core'
 import { 
     type LoadReading, 
     type TemperatureReading,
-    type UserProc
+    type UserProc,
+    type UserProcsPacket
 } from '@/globals/projectTypes'
 import { domain, port } from "@/globals/projectVars";
 
@@ -82,7 +83,7 @@ export function useUserProcs() {
             retries: 5,
             delay: 1000,
             onFailed() {
-                console.error('load-reading socket: failed to reconnect after 5 attempts')
+                console.error('user-procs socket: failed to reconnect after 5 attempts')
             },
         },
 
@@ -95,13 +96,19 @@ export function useUserProcs() {
                     return
                 }
                 
-                data.value = JSON.parse(event.data) as UserProc[]
-
-                // for (var item in event.data) {
-                //     data.value.push(JSON.parse(item) as UserProc)
-                // }
+                const packet = JSON.parse(event.data) as UserProcsPacket
+                data.value = packet.data.map(([pid, name, username, exe, cpu_percent, memory_percent, disk_percent, io_percent]) => ({
+                    pid,
+                    name: name ?? '',
+                    username: username ?? '',
+                    exe: exe ?? '',
+                    cpu_percent: cpu_percent ?? 0,
+                    memory_percent: memory_percent ?? 0,
+                    disk_percent,
+                    io_percent
+                }))
             } catch (err) {
-                console.error('Failed to parse load-reading message', err)
+                console.error('Failed to parse user-procs message', err)
             }
         },
     })
