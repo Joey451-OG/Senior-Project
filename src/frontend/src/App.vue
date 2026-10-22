@@ -29,6 +29,7 @@
         <cpu-gauge class="cpu"/>
         <user-procs class="procs"/>
         <crontab-list class="cron"/>
+        <admin-commands class="cmds"/>
     </main>
 
     <footer>
@@ -108,7 +109,8 @@
         grid-template-columns: minmax(280px, 340px) 1fr;
         grid-template-areas:
             "cpu  procs"
-            "cron cron";
+            "cron cron"
+            "cmds cmds";
         gap: 20px;
         max-width: 1280px;
         margin: 0 auto;
@@ -119,6 +121,7 @@
     .cpu { grid-area: cpu; }
     .procs { grid-area: procs; }
     .cron { grid-area: cron; }
+    .cmds { grid-area: cmds; }
 
     footer {
         padding: 8px 0 24px;

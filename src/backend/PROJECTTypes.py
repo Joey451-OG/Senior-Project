@@ -65,3 +65,19 @@ class KilledProcess(BaseModel):
     pid: int
     username: str
     signal: str
+
+
+# --- Admin commands (from /etc/waru/sudo_commands, via the privileged run-commands helper) ---
+
+class AdminCommand(BaseModel):
+    command_id: str
+    command: str
+
+class AdminCommandListing(BaseModel):
+    version: int
+    commands: list[AdminCommand]
+    # Set when the helper refused the commands file (missing, unsafe permissions, ...); commands is then empty.
+    error: str | None
+
+class AdminCommandsChangeEvent(BaseModel):
+    version: int

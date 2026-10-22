@@ -1,7 +1,9 @@
 """
 Unprivileged front for the privileged helpers:
-    - cron helper     (src/privileged/AdminCron.py)
-    - process helper  (src/privileged/AdminProcesses.py), which only kills non-root processes
+    - cron helper          (src/privileged/AdminCron.py)
+    - process helper       (src/privileged/AdminProcesses.py), which only kills non-root processes
+    - run-commands helper  (src/privileged/AdminRunCommands.py), which only runs the commands
+                           listed in /etc/waru/sudo_commands
 
 Both helpers are stateless: they only answer commands over their Unix sockets,
 using the same one-JSON-line-per-request protocol. For cron, this router owns
@@ -13,6 +15,11 @@ everything stateful on the main-API side:
 
 Changes are infrequent, so the frontend listens on /papi/cron/events and
 re-fetches /papi/cron when an event arrives, instead of holding a WebSocket.
+
+Admin commands work the same way: the commands file is polled through the helper,
+and /papi/commands/events tells the frontend to re-fetch /papi/commands whenever a
+command is added, removed or edited (or the file becomes unreadable). Running one
+streams its output back as newline-delimited JSON, relayed line for line from the helper.
 """
 
 import asyncio
@@ -25,9 +32,11 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import APIRouter, Header, HTTPException, Path
+from fastapi.responses import StreamingResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from PROJECTTypes import (
+    AdminCommand, AdminCommandListing, AdminCommandsChangeEvent,
     CronChangeEvent, CrontabContent, CrontabListing, CrontabSnapshot, CrontabWriteRequest,
     KilledProcess, UserCrontab,
 )
@@ -38,6 +47,8 @@ logger = logging.getLogger("privileged_api")
 cron_helper_socket_path = os.environ.get("CRON_HELPER_SOCKET", "/run/waru-dashboard/cron_helper.sock")
 # Must match the helper's PROCESS_HELPER_SOCKET.
 process_helper_socket_path = os.environ.get("PROCESS_HELPER_SOCKET", "/run/waru-dashboard/process_helper.sock")
+# Must match the helper's RUN_COMMANDS_HELPER_SOCKET.
+run_commands_helper_socket_path = os.environ.get("RUN_COMMANDS_HELPER_SOCKET", "/run/waru-dashboard/run_commands_helper.sock")
 
 # list_crontabs can fall back to `crontab -l` for every account, so give it room.
 helper_request_timeout_seconds = 30.0
@@ -47,6 +58,7 @@ helper_reconnect_after_idle_seconds = 240.0
 helper_response_line_limit_bytes = 4 * 1024 * 1024
 
 cron_poll_interval_seconds = 5
+commands_poll_interval_seconds = 5
 
 
 # --- Helper client ---
@@ -141,6 +153,7 @@ class PrivilegedHelperClient:
 
 cron_helper_client = PrivilegedHelperClient(cron_helper_socket_path)
 process_helper_client = PrivilegedHelperClient(process_helper_socket_path)
+run_commands_helper_client = PrivilegedHelperClient(run_commands_helper_socket_path)
 
 # Helper error messages that map to something more specific than 400.
 helper_error_status_codes = {
@@ -150,6 +163,9 @@ helper_error_status_codes = {
     "No such process": 404,
     "Refusing to kill a process owned by root": 403,
     "Refusing to kill a protected process": 403,
+    "Unknown command id": 404,
+    "Commands file not found": 404,
+    "Commands file has unsafe ownership or permissions": 403,
 }
 
 
@@ -233,7 +249,124 @@ def registerCronPollJob(scheduler: AsyncIOScheduler, poll_interval_seconds: int 
                       id="cron_poll", replace_existing=True)
 
 
-# --- Routes (final paths: /papi/cron, /papi/cron/events, /papi/cron/{username}[/content], /papi/processes/{pid}) ---
+# --- Admin commands: change tracking, polling and output streaming ---
+
+class AdminCommandsTracker:
+    """
+    Bumps a version counter whenever the list of commands in /etc/waru/sudo_commands
+    changes (a line added, removed, edited or reordered) or the helper starts or stops
+    refusing the file.
+    """
+
+    def __init__(self) -> None:
+        self.version = 0
+        self.last_seen_state: Optional[tuple[tuple[str, ...], Optional[str]]] = None
+        # Replaced on every change; SSE streams wait on whichever one is current.
+        self.change_signal = asyncio.Event()
+
+    def applyListing(self, commands: list[AdminCommand], error: Optional[str]) -> None:
+        new_state = (tuple(command.command_id for command in commands), error)
+        hasBaseline = self.last_seen_state is not None
+        hasChanged = hasBaseline and new_state != self.last_seen_state
+        self.last_seen_state = new_state
+        if not hasChanged:
+            return
+
+        self.version += 1
+        logger.info("Admin commands changed (version %d): %d command(s)%s",
+                    self.version, len(commands), f", error: {error}" if error else "")
+        previous_change_signal = self.change_signal
+        self.change_signal = asyncio.Event()
+        previous_change_signal.set()
+
+
+admin_commands_tracker = AdminCommandsTracker()
+
+
+async def fetchAdminCommandListing() -> AdminCommandListing:
+    """
+    A refused commands file (missing, unsafe permissions, ...) is reported inside the
+    listing rather than as an HTTP error, so the frontend shows an empty list with the
+    reason, and fixing the file is picked up like any other change.
+    """
+    try:
+        result_dictionary = await run_commands_helper_client.sendCommand("list_commands")
+        commands = [AdminCommand.model_validate(command) for command in result_dictionary["commands"]]
+        error = None
+    except HelperCommandError as helper_error:
+        commands, error = [], str(helper_error)
+    admin_commands_tracker.applyListing(commands, error)
+    return AdminCommandListing(version=admin_commands_tracker.version, commands=commands, error=error)
+
+
+async def pollAdminCommands() -> None:
+    try:
+        await fetchAdminCommandListing()
+    except HelperUnavailableError as error:
+        logger.warning("Admin commands poll failed: %s", error)
+
+
+def registerAdminCommandsPollJob(scheduler: AsyncIOScheduler, poll_interval_seconds: int = commands_poll_interval_seconds):
+    scheduler.add_job(pollAdminCommands, "interval", seconds=poll_interval_seconds,
+                      id="admin_commands_poll", replace_existing=True)
+
+
+async def startAdminCommandRun(command_id: str) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, bytes]:
+    """
+    Opens a dedicated helper connection (the helper closes it once the command ends,
+    so the shared client can't be used) and sends run_command. Returns the connection
+    and the helper's "started" line, or raises if the command didn't start.
+    """
+    try:
+        reader, writer = await asyncio.open_unix_connection(
+            run_commands_helper_socket_path, limit=helper_response_line_limit_bytes
+        )
+    except OSError as error:
+        raise HelperUnavailableError(f"Cannot connect to {run_commands_helper_socket_path}: {error.strerror}") from None
+
+    try:
+        writer.write((json.dumps({"command": "run_command", "command_id": command_id}) + "\n").encode("utf-8"))
+        await writer.drain()
+        started_line_bytes = await asyncio.wait_for(reader.readline(), timeout=helper_request_timeout_seconds)
+        if started_line_bytes == b"":
+            raise HelperUnavailableError("Helper closed the connection")
+        started_dictionary = json.loads(started_line_bytes)
+        if not started_dictionary.get("ok"):
+            raise HelperCommandError(started_dictionary.get("error", "Unknown helper error"))
+    except BaseException as error:
+        writer.close()
+        if isinstance(error, (ConnectionError, asyncio.TimeoutError, ValueError)):
+            raise HelperUnavailableError(f"Helper connection failed: {error!r}") from None
+        raise
+    return reader, writer, started_line_bytes
+
+
+async def relayAdminCommandRun(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, started_line_bytes: bytes
+) -> AsyncIterable[bytes]:
+    """
+    Passes the helper's event lines through unchanged until the helper closes the
+    connection. No read timeout: a command may legitimately be silent for minutes,
+    and the helper enforces its own time limit. If the browser goes away, the helper
+    connection is closed, and the helper lets the command finish on its own.
+    """
+    try:
+        yield started_line_bytes
+        while True:
+            try:
+                event_line_bytes = await reader.readline()
+            except (ConnectionError, ValueError) as error:
+                logger.warning("Lost the run-commands helper mid-run: %r", error)
+                return
+            if event_line_bytes == b"":
+                return
+            yield event_line_bytes
+    finally:
+        writer.close()
+
+
+# --- Routes (final paths: /papi/cron, /papi/cron/events, /papi/cron/{username}[/content], /papi/processes/{pid},
+#                         /papi/commands, /papi/commands/events, /papi/commands/{command_id}/run) ---
 
 p_api_endpoint_router = APIRouter(prefix="/papi", tags=["Privileged Endpoints"])
 
@@ -323,3 +456,55 @@ async def killProcess(pid: int = Path(gt=0)) -> KilledProcess:
     except (HelperUnavailableError, HelperCommandError) as error:
         raiseHttpErrorForHelperFailure(error)
     return KilledProcess.model_validate(result_dictionary)
+
+
+@p_api_endpoint_router.get("/commands", response_model=AdminCommandListing)
+async def listAdminCommands() -> AdminCommandListing:
+    try:
+        return await fetchAdminCommandListing()
+    except HelperUnavailableError as error:
+        raiseHttpErrorForHelperFailure(error)
+
+
+@p_api_endpoint_router.get("/commands/events", response_class=EventSourceResponse)
+async def streamAdminCommandChanges(last_event_id: Optional[str] = Header(default=None)) -> AsyncIterable[ServerSentEvent]:
+    """
+    Emits a "commands_changed" event (id = version) each time the commands file's
+    list of commands changes. Same reconnect behavior as /cron/events.
+    """
+    try:
+        last_seen_version = int(last_event_id) if last_event_id is not None else None
+    except ValueError:
+        last_seen_version = None
+
+    hasMissedChange = last_seen_version is not None and admin_commands_tracker.version > last_seen_version
+    if hasMissedChange:
+        version = admin_commands_tracker.version
+        yield ServerSentEvent(event="commands_changed", id=str(version), data=AdminCommandsChangeEvent(version=version))
+
+    while True:
+        await admin_commands_tracker.change_signal.wait()
+        version = admin_commands_tracker.version
+        yield ServerSentEvent(event="commands_changed", id=str(version), data=AdminCommandsChangeEvent(version=version))
+
+
+@p_api_endpoint_router.post("/commands/{command_id}/run")
+async def runAdminCommand(command_id: str = Path(pattern="^[0-9a-f]{64}$")) -> StreamingResponse:
+    """
+    Runs one command from /etc/waru/sudo_commands as root and streams its output as
+    newline-delimited JSON, one helper event per line ("started", "output"..., then
+    "finished", or {"ok": false, "error"} if it failed mid-run). Errors before the
+    command starts are ordinary HTTP errors (404 unknown id, 403 unsafe file, 503
+    helper down). POST, not GET, because it has side effects, so EventSource can't
+    be used; the frontend reads the response body as a stream instead.
+    """
+    try:
+        reader, writer, started_line_bytes = await startAdminCommandRun(command_id)
+    except (HelperUnavailableError, HelperCommandError) as error:
+        raiseHttpErrorForHelperFailure(error)
+    return StreamingResponse(
+        relayAdminCommandRun(reader, writer, started_line_bytes),
+        media_type="application/x-ndjson",
+        # Stops proxies (e.g. nginx) from buffering the output until the command ends.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

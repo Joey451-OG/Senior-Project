@@ -1,6 +1,8 @@
 import { ref, watch } from 'vue'
 import { useEventSource } from '@vueuse/core'
 import {
+    type AdminCommandListing,
+    type AdminCommandRunEvent,
     type CronChangeEvent,
     type CrontabContent,
     type CrontabListing,
@@ -104,4 +106,76 @@ export async function saveCrontab(username: string, content: string, expectedHas
         throw new Error(await readErrorDetail(response, `PUT /papi/cron/${username} failed: ${response.status}`))
     }
     return await response.json() as CrontabContent
+}
+
+export function useAdminCommands() {
+    const listing = ref<AdminCommandListing | null>(null)
+    const error = ref<string | null>(null)
+
+    async function refresh() {
+        try {
+            const response = await fetch(`${papi_url}/commands`)
+            if (!response.ok) {
+                error.value = await readErrorDetail(response, `GET /papi/commands failed: ${response.status}`)
+                return
+            }
+            listing.value = await response.json() as AdminCommandListing
+            error.value = null
+        } catch (err) {
+            error.value = `GET /papi/commands failed: ${err}`
+        }
+    }
+
+    // The backend polls /etc/waru/sudo_commands and pushes "commands_changed" when its
+    // commands change, so lines added to or removed from the file show up on their own.
+    const { data: eventData, status } = useEventSource(`${papi_url}/commands/events`, ['commands_changed'] as const, {
+        autoReconnect: {
+            retries: 5,
+            delay: 1000,
+            onFailed() {
+                console.error('commands-events stream: failed to reconnect after 5 attempts')
+            },
+        },
+    })
+
+    // The event only says "something changed"; the listing itself is always re-fetched
+    watch(eventData, (rawEvent) => {
+        if (rawEvent) refresh()
+    })
+
+    refresh()
+
+    return { listing, error, status, refresh }
+}
+
+/**
+ * Runs one command from the commands file and calls onEvent for every event the
+ * helper streams back, resolving once the stream ends. Aborting `signal` only stops
+ * watching: the command keeps running on the server until it finishes.
+ */
+export async function runAdminCommand(
+    commandId: string,
+    onEvent: (event: AdminCommandRunEvent) => void,
+    signal?: AbortSignal,
+): Promise<void> {
+    // POST because it has side effects, which rules out EventSource; the body is read as a stream instead
+    const response = await fetch(`${papi_url}/commands/${encodeURIComponent(commandId)}/run`, { method: 'POST', signal })
+    if (!response.ok || !response.body) {
+        throw new Error(await readErrorDetail(response, `POST /papi/commands/${commandId}/run failed: ${response.status}`))
+    }
+
+    // Newline-delimited JSON; a network chunk can end mid-line, so keep the tail for the next one
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+    let buffered = ''
+    while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffered += value
+        const lines = buffered.split('\n')
+        buffered = lines.pop() ?? ''
+        for (const line of lines) {
+            if (line.trim()) onEvent(JSON.parse(line) as AdminCommandRunEvent)
+        }
+    }
+    if (buffered.trim()) onEvent(JSON.parse(buffered) as AdminCommandRunEvent)
 }

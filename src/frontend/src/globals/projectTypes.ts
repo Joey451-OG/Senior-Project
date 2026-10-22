@@ -83,3 +83,38 @@ export interface KilledProcess {
     username: string,
     signal: string
 }
+
+
+// --- Admin commands (lines of /etc/waru/sudo_commands, run as root by the privileged helper) ---
+
+export interface AdminCommand {
+    command_id: string,
+    command: string
+}
+
+export interface AdminCommandListing {
+    version: number,
+    commands: AdminCommand[],
+    // Why the commands file was refused (missing, unsafe permissions, ...); commands is then empty
+    error: string | null
+}
+
+export interface AdminCommandsChangeEvent {
+    version: number
+}
+
+export interface AdminCommandResult {
+    command_id: string,
+    command: string,
+    // Negative when killed by a signal (-9 after a timeout)
+    exit_code: number,
+    timed_out: boolean,
+    duration_seconds: number
+}
+
+// One line of the newline-delimited JSON streamed by POST /papi/commands/{id}/run
+export type AdminCommandRunEvent =
+    | { ok: true, event: 'started', command_id: string, command: string }
+    | { ok: true, event: 'output', stream: 'stdout' | 'stderr', data: string }
+    | { ok: true, event: 'finished', result: AdminCommandResult }
+    | { ok: false, error: string }
