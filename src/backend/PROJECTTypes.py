@@ -75,6 +75,22 @@ class KilledProcess(BaseModel):
     username: str
     signal: str
 
+class RefusedProcess(BaseModel):
+    pid: int
+    error: str
+
+class LoggedOffUser(BaseModel):
+    # From the log-off helper's SIGTERM pass
+    username: str
+    uid: int
+    killed_pids: list[int]
+    refused: list[RefusedProcess]
+    # The user's processes still alive shortly after the SIGTERM pass
+    remaining_pids: list[int]
+    # Force logout only: SIGKILL sent to remaining_pids through the process helper
+    force_killed_pids: list[int] = []
+    force_refused: list[RefusedProcess] = []
+
 
 # --- Admin commands (from /etc/waru/sudo_commands, via the privileged run-commands helper) ---
 

@@ -94,3 +94,39 @@ body {
     text-align: center;
     color: var(--text-muted);
 }
+
+/* Dismissible result banner (e.g. after logging a user out) */
+.notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+
+.notice.ok {
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+    color: var(--ok);
+}
+
+.notice.warn {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    color: color-mix(in srgb, var(--warn) 70%, var(--text));
+}
+
+.notice.error {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
+}
+
+.notice .dismiss {
+    border: none;
+    background: none;
+    color: inherit;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}

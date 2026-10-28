@@ -7,7 +7,8 @@ import {
     type CrontabContent,
     type CrontabListing,
     type CrontabSnapshot,
-    type KilledProcess
+    type KilledProcess,
+    type LoggedOffUser
 } from '@/globals/projectTypes'
 import { domain, port } from "@/globals/projectVars";
 
@@ -80,6 +81,16 @@ export async function killProcess(pid: number): Promise<KilledProcess> {
         throw new Error(await readErrorDetail(response, `DELETE /papi/processes/${pid} failed: ${response.status}`))
     }
     return await response.json() as KilledProcess
+}
+
+// force: also SIGKILL whatever is still running after the SIGTERM pass
+export async function logoutUser(username: string, force = false): Promise<LoggedOffUser> {
+    const url = `${papi_url}/users/${encodeURIComponent(username)}/logout${force ? '?force=true' : ''}`
+    const response = await fetch(url, { method: 'POST' })
+    if (!response.ok) {
+        throw new Error(await readErrorDetail(response, `POST /papi/users/${username}/logout failed: ${response.status}`))
+    }
+    return await response.json() as LoggedOffUser
 }
 
 export async function fetchCrontabContent(username: string): Promise<CrontabContent> {

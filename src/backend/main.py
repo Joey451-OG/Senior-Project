@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from routes.WebsocketRoute import websocket_router, registerBroadcastJobs
 from routes.PrivilegedAPIEndpointRoute import (
     p_api_endpoint_router, registerCronPollJob, registerAdminCommandsPollJob,
-    cron_helper_client, process_helper_client, run_commands_helper_client,
+    cron_helper_client, process_helper_client, run_commands_helper_client, logoff_helper_client,
 )
  
 # One scheduler for the whole app; each router registers its own jobs on it.
@@ -26,6 +26,7 @@ async def lifespan(application: FastAPI):
     await cron_helper_client.close()
     await process_helper_client.close()
     await run_commands_helper_client.close()
+    await logoff_helper_client.close()
  
  
 api = FastAPI(lifespan=lifespan)

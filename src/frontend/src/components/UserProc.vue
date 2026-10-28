@@ -1,12 +1,18 @@
 <script setup lang="ts">
-    import { computed, ref, watch } from 'vue'
+    import { computed, ref, watch, type Ref } from 'vue'
     import { useStorage } from '@vueuse/core'
     import { useUserProcs } from '@/composables/useDashboardWS'
     import { killProcess } from '@/composables/usePrivilegedAPI'
     import { type UserProc } from '@/globals/projectTypes'
     import StatusPill from './StatusPill.vue'
 
+    // With a username, only that user's processes are listed (used by the logged-in user pop-up)
+    const props = defineProps<{ username?: string }>()
+
     const { data, status } = useUserProcs();
+
+    const procs = computed(() =>
+        props.username ? data.value?.filter(proc => proc.username === props.username) ?? null : data.value)
 
     type MetricKey = 'cpu_percent' | 'memory_percent' | 'disk_percent' | 'io_percent'
     type SortKey = 'pid' | 'name' | MetricKey
@@ -27,8 +33,9 @@
     const sortKey = ref<SortKey>('cpu_percent')
     const sortDescending = ref(true)
     const filter = ref('')
-    // Only processes using more than this % of any metric are listed; remembered per browser
-    const cutoff = useStorage('waru.processCutoff', 1)
+    // Only processes using more than this % of any metric are listed (0 lists everything).
+    // The main list remembers it per browser; a single user's list starts at 0 so every process shows.
+    const cutoff: Ref<number> = props.username ? ref(0) : useStorage('waru.processCutoff', 1)
     const collapsedUsers = ref(new Set<string>())
 
     function setSort(key: SortKey) {
@@ -46,8 +53,10 @@
         else collapsedUsers.value.add(username)
     }
 
-    const isAboveCutoff = (proc: UserProc) =>
-        metrics.some(metric => (proc[metric.key] ?? 0) > (cutoff.value || 0))
+    function isAboveCutoff(proc: UserProc) {
+        const threshold = cutoff.value || 0
+        return threshold <= 0 || metrics.some(metric => (proc[metric.key] ?? 0) > threshold)
+    }
 
     function matchesFilter(proc: UserProc, needle: string) {
         return !needle
@@ -78,11 +87,11 @@
     }
 
     const groups = computed<UserGroup[]>(() => {
-        if (!data.value) return []
+        if (!procs.value) return []
         const needle = filter.value.trim().toLowerCase()
 
         const byUser = new Map<string, UserProc[]>()
-        for (const proc of data.value) {
+        for (const proc of procs.value) {
             const list = byUser.get(proc.username) ?? []
             list.push(proc)
             byUser.set(proc.username, list)
@@ -117,9 +126,9 @@
     const killedPids = ref(new Set<number>())
     const killError = ref<string | null>(null)
 
-    watch(data, (procs) => {
-        if (!procs) return
-        const livePids = new Set(procs.map(proc => proc.pid))
+    watch(data, (allProcs) => {
+        if (!allProcs) return
+        const livePids = new Set(allProcs.map(proc => proc.pid))
         for (const pid of killedPids.value) {
             if (!livePids.has(pid)) killedPids.value.delete(pid)
         }
@@ -148,8 +157,8 @@
         <header class="card-header">
             <h2 class="card-title">
                 Processes
-                <span v-if="data" class="count" :title="`${shownCount} of ${data.length} processes shown`">
-                    {{ shownCount }} / {{ data.length }}
+                <span v-if="procs" class="count" :title="`${shownCount} of ${procs.length} processes shown`">
+                    {{ shownCount }} / {{ procs.length }}
                 </span>
             </h2>
             <div class="controls">
@@ -168,7 +177,7 @@
             <button type="button" class="dismiss" aria-label="Dismiss" @click="killError = null">×</button>
         </p>
 
-        <div v-if="!data" class="placeholder">Waiting for process data…</div>
+        <div v-if="!procs" class="placeholder">Waiting for process data…</div>
         <div v-else class="table-wrap">
             <table>
                 <thead>
@@ -221,7 +230,7 @@
                 </tbody>
                 <tbody v-if="groups.length === 0">
                     <tr>
-                        <td :colspan="columns.length + 1" class="placeholder">No processes above {{ cutoff }}%</td>
+                        <td :colspan="columns.length + 1" class="placeholder">{{ cutoff > 0 ? `No processes above ${cutoff}%` : 'No processes' }}</td>
                     </tr>
                 </tbody>
             </table>

@@ -2,6 +2,7 @@
 Unprivileged front for the privileged helpers:
     - cron helper          (src/privileged/AdminCron.py)
     - process helper       (src/privileged/AdminProcesses.py), which only kills non-root processes
+    - log-off helper       (src/privileged/AdminLogoff.py), which ends every process of one non-root user
     - run-commands helper  (src/privileged/AdminRunCommands.py), which only runs the commands
                            listed in /etc/waru/sudo_commands
 
@@ -38,7 +39,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from PROJECTTypes import (
     AdminCommand, AdminCommandListing, AdminCommandsChangeEvent,
     CronChangeEvent, CrontabContent, CrontabListing, CrontabSnapshot, CrontabWriteRequest,
-    KilledProcess, UserCrontab,
+    KilledProcess, LoggedOffUser, RefusedProcess, UserCrontab,
 )
 
 logger = logging.getLogger("privileged_api")
@@ -49,6 +50,8 @@ cron_helper_socket_path = os.environ.get("CRON_HELPER_SOCKET", "/run/waru-dashbo
 process_helper_socket_path = os.environ.get("PROCESS_HELPER_SOCKET", "/run/waru-dashboard/process_helper.sock")
 # Must match the helper's RUN_COMMANDS_HELPER_SOCKET.
 run_commands_helper_socket_path = os.environ.get("RUN_COMMANDS_HELPER_SOCKET", "/run/waru-dashboard/run_commands_helper.sock")
+# Must match the helper's LOGOFF_HELPER_SOCKET.
+logoff_helper_socket_path = os.environ.get("LOGOFF_HELPER_SOCKET", "/run/waru-dashboard/logoff_helper.sock")
 
 # list_crontabs can fall back to `crontab -l` for every account, so give it room.
 helper_request_timeout_seconds = 30.0
@@ -154,6 +157,7 @@ class PrivilegedHelperClient:
 cron_helper_client = PrivilegedHelperClient(cron_helper_socket_path)
 process_helper_client = PrivilegedHelperClient(process_helper_socket_path)
 run_commands_helper_client = PrivilegedHelperClient(run_commands_helper_socket_path)
+logoff_helper_client = PrivilegedHelperClient(logoff_helper_socket_path)
 
 # Helper error messages that map to something more specific than 400.
 helper_error_status_codes = {
@@ -163,6 +167,7 @@ helper_error_status_codes = {
     "No such process": 404,
     "Refusing to kill a process owned by root": 403,
     "Refusing to kill a protected process": 403,
+    "Refusing to log off root": 403,
     "Unknown command id": 404,
     "Commands file not found": 404,
     "Commands file has unsafe ownership or permissions": 403,
@@ -456,6 +461,33 @@ async def killProcess(pid: int = Path(gt=0)) -> KilledProcess:
     except (HelperUnavailableError, HelperCommandError) as error:
         raiseHttpErrorForHelperFailure(error)
     return KilledProcess.model_validate(result_dictionary)
+
+
+@p_api_endpoint_router.post("/users/{username}/logout", response_model=LoggedOffUser)
+async def logoutUser(username: str, force: bool = False) -> LoggedOffUser:
+    """
+    Logs a user off by sending SIGTERM to all of their processes (log-off helper).
+    With force=true, whatever survived that is then sent SIGKILL (process helper).
+    Both helpers refuse root (403) and root-owned processes. Never retried.
+    """
+    try:
+        result_dictionary = await logoff_helper_client.sendCommand("logoff_user", is_idempotent=False, username=username)
+    except (HelperUnavailableError, HelperCommandError) as error:
+        raiseHttpErrorForHelperFailure(error)
+    logged_off_user = LoggedOffUser.model_validate(result_dictionary)
+
+    if force and logged_off_user.remaining_pids:
+        try:
+            force_result_dictionary = await process_helper_client.sendCommand(
+                "force_kill_processes", is_idempotent=False, pids=logged_off_user.remaining_pids
+            )
+        except (HelperUnavailableError, HelperCommandError) as error:
+            raiseHttpErrorForHelperFailure(error)
+        logged_off_user.force_killed_pids = force_result_dictionary["killed_pids"]
+        logged_off_user.force_refused = [
+            RefusedProcess.model_validate(refused) for refused in force_result_dictionary["refused"]
+        ]
+    return logged_off_user
 
 
 @p_api_endpoint_router.get("/commands", response_model=AdminCommandListing)

@@ -39,6 +39,32 @@ export interface UserProcsPacket {
     data: UserProcTuple[]
 }
 
+export interface LoggedInUser {
+    username: string,
+    login_time: number,         // epoch seconds of the user's earliest current session
+    logged_in_for: string,      // formatted by the backend, e.g. "2d 3h 14m"
+    logged_in_seconds: number,
+    session_count: number,
+    shell: string | null,
+    process_count: number
+}
+
+// Wire format of /ws/logged-in-users: each user is a LoggedInUser NamedTuple serialized as an array
+export type LoggedInUserTuple = [
+    username: string,
+    login_time: number,
+    logged_in_for: string,
+    logged_in_seconds: number,
+    session_count: number,
+    shell: string | null,
+    process_count: number
+]
+
+export interface LoggedInUsersPacket {
+    name: string,
+    data: LoggedInUserTuple[]
+}
+
 export interface LoadReading {
     type: string | null,
     value: number | null
@@ -82,6 +108,30 @@ export interface KilledProcess {
     pid: number,
     username: string,
     signal: string
+}
+
+export interface RefusedProcess {
+    pid: number,
+    error: string
+}
+
+export interface LoggedOffUser {
+    // From the SIGTERM pass
+    username: string,
+    uid: number,
+    killed_pids: number[],
+    refused: RefusedProcess[],
+    remaining_pids: number[],   // still alive shortly after the SIGTERM pass
+    // Force logout only: SIGKILL sent to remaining_pids
+    force_killed_pids: number[],
+    force_refused: RefusedProcess[]
+}
+
+// Result banner shown after a log-out attempt, on the Logged in card and in that user's pop-up
+export interface LogoutNotice {
+    username: string,
+    text: string,
+    kind: 'ok' | 'warn' | 'error'
 }
 
 
