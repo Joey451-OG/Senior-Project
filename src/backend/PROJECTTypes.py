@@ -13,6 +13,15 @@ class UsersSession(NamedTuple):
     started: float | None
     pid: int | None
 
+class LoggedInUser(NamedTuple):
+    username: str
+    login_time: float             # epoch seconds of the user's earliest current session
+    logged_in_for: str            # e.g. "2d 3h 14m", measured from login_time
+    logged_in_seconds: int
+    session_count: int
+    shell: str | None             # shell running in the newest session, else the login shell from passwd
+    process_count: int            # every process the user owns, not just ones in their sessions
+
 class UserProcesses(NamedTuple):
     pid: int | None
     name: str | None

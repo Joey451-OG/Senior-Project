@@ -36,6 +36,7 @@ websocket_router = APIRouter(prefix="/ws", tags=["websockets"])
 cpu_load_connection_manager = WSConnectionManager()
 cpu_temperature_connection_manager = WSConnectionManager()
 user_procs_connection_manager = WSConnectionManager()
+logged_in_users_connection_manager = WSConnectionManager()
 
 # How long we wait for any client message before treating the socket as idle
 # and probing it with a ping. This is also effectively how quickly a
@@ -58,6 +59,9 @@ async def broadcastCpuTemperatures():
 async def broadcastUserProcs():
     await user_procs_connection_manager.broadcast(UserUtils.getUserProcs())
 
+async def broadcastLoggedInUsers():
+    await logged_in_users_connection_manager.broadcast(UserUtils.getLoggedInUsers())
+
 
 def registerBroadcastJobs(scheduler: AsyncIOScheduler, broadcast_interval_seconds: int = 1):
     """
@@ -71,6 +75,8 @@ def registerBroadcastJobs(scheduler: AsyncIOScheduler, broadcast_interval_second
                       id="cpu_temperature_broadcast", replace_existing=True)
     scheduler.add_job(broadcastUserProcs, "interval", seconds=broadcast_interval_seconds,
                       id="user_procs_broadcast", replace_existing=True)
+    scheduler.add_job(broadcastLoggedInUsers, "interval", seconds=broadcast_interval_seconds,
+                      id="logged_in_users_broadcast", replace_existing=True)
 
 
 # --- Heartbeat ---
@@ -113,7 +119,7 @@ async def runWebsocketHeartbeatLoop(ws: WebSocket, connection_manager: WSConnect
         connection_manager.disconnect(ws)
 
 
-# --- Routes (final paths: /ws/cpu-load, /ws/cpu-temp, /ws/user-procs) ---
+# --- Routes (final paths: /ws/cpu-load, /ws/cpu-temp, /ws/user-procs, /ws/logged-in-users) ---
 
 @websocket_router.websocket("/cpu-load")
 async def cpuLoadSocket(ws: WebSocket):
@@ -129,3 +135,8 @@ async def cpuTemperatureSocket(ws: WebSocket):
 async def userProcsSocket(ws: WebSocket):
     await user_procs_connection_manager.connect(ws)
     await runWebsocketHeartbeatLoop(ws, user_procs_connection_manager)
+
+@websocket_router.websocket("/logged-in-users")
+async def loggedInUsersSocket(ws: WebSocket):
+    await logged_in_users_connection_manager.connect(ws)
+    await runWebsocketHeartbeatLoop(ws, logged_in_users_connection_manager)

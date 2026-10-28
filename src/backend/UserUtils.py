@@ -1,15 +1,28 @@
+import json
+import os
 import psutil
+import subprocess
 import getpass
+import pwd
+import time
 import apscheduler
 import crontab
 
-from PROJECTTypes import TemperatureReading, UsersSession, UserProcesses
+from PROJECTTypes import TemperatureReading, UsersSession, UserProcesses, LoggedInUser
 
 # Setup
 psutil.cpu_percent()
 CPU_SENSOR_NAME = ("coretemp", "k10temp", "cpu_thermal")
 
 CPU_COUNT = psutil.cpu_count() or 1
+
+FALLBACK_SHELL_NAMES = {"sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh"}
+
+# logind session classes that are real logins ("manager" is the user's systemd instance, not a login)
+LOGIN_SESSION_CLASSES = {"user", "user-early"}
+# "closing" sessions were logged out of but still have leftover processes (e.g. a detached tmux)
+LOGGED_IN_SESSION_STATES = {"active", "online"}
+LOGINCTL_TIMEOUT_SECONDS = 5
 
 # Globals
 logged_in_users = []
@@ -19,7 +32,36 @@ previous_proc_io: dict[tuple[int, float], tuple[int, int]] = {}
 previous_system_disk_bytes: int | None = None
 
 # Utility Function(s)
-# TODO: Wite a function to get all logged in users. This will run every minute.
+def readShellNames() -> set[str]:
+    """Basenames of the shells listed in /etc/shells, falling back to the common ones."""
+    try:
+        with open("/etc/shells", encoding="utf-8") as shells_file:
+            shell_names = {os.path.basename(line.strip()) for line in shells_file
+                           if line.strip() and not line.startswith("#")}
+    except OSError:
+        return FALLBACK_SHELL_NAMES
+    return shell_names or FALLBACK_SHELL_NAMES
+
+
+def formatDuration(total_seconds: int) -> str:
+    """e.g. 2d 3h 14m; anything under a minute is shown as 0m."""
+    days, remainder = divmod(max(total_seconds, 0), 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes = remainder // 60
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if days or hours:
+        parts.append(f"{hours}h")
+    parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+def lookupLoginShell(username: str) -> str | None:
+    try:
+        return os.path.basename(pwd.getpwnam(username).pw_shell) or None
+    except KeyError:
+        return None
 
 # Data Collection
 def getCpuUtilization() -> dict:
@@ -47,6 +89,124 @@ def getCpuTemperatures() -> dict:
             return ret_dictionary
 
     return {}
+
+
+def runLoginctl(*arguments: str) -> str:
+    return subprocess.run(["loginctl", "--no-pager", *arguments], capture_output=True, text=True,
+                          check=True, timeout=LOGINCTL_TIMEOUT_SECONDS).stdout
+
+
+def readLogindSessions() -> list[dict]:
+    """
+    Current login sessions from systemd-logind. Used instead of psutil.users(),
+    which only reads utmp, and systems without utmp (e.g. systemd 259 Ubuntu) have none.
+    Each dict has: id, username, scope (cgroup unit name) and started (epoch seconds).
+    """
+    listed_sessions = json.loads(runLoginctl("list-sessions", "--json=short"))
+    session_ids = [session["session"] for session in listed_sessions
+                   if session["class"] in LOGIN_SESSION_CLASSES]
+    if not session_ids:
+        return []
+
+    # One call for every session; the output is one KEY=value block per session, separated by blank lines.
+    show_output = runLoginctl("show-session", *session_ids, "-p", "Id", "-p", "Name", "-p", "State",
+                              "-p", "Scope", "-p", "TimestampMonotonic")
+
+    # logind only exposes the login time formatted for humans or as CLOCK_MONOTONIC microseconds;
+    # convert the latter. This can drift if the machine has been suspended since the login.
+    monotonic_to_epoch_offset = time.time() - time.clock_gettime(time.CLOCK_MONOTONIC)
+
+    sessions = []
+    for block in show_output.strip().split("\n\n"):
+        properties = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if properties.get("State") not in LOGGED_IN_SESSION_STATES:
+            continue
+        sessions.append({
+            "id": properties["Id"],
+            "username": properties["Name"],
+            "scope": properties["Scope"],
+            "started": monotonic_to_epoch_offset + int(properties["TimestampMonotonic"]) / 1_000_000,
+        })
+    return sessions
+
+
+def readCgroupUnit(pid: int) -> str | None:
+    """The last component of a process's cgroup v2 path, e.g. session-12.scope."""
+    try:
+        with open(f"/proc/{pid}/cgroup", encoding="utf-8") as cgroup_file:
+            for line in cgroup_file:
+                if line.startswith("0::"):
+                    return os.path.basename(line.strip())
+    except OSError:
+        return None
+    return None
+
+
+def getLoggedInUsers() -> dict:
+    """
+    One entry per logged-in user (a user with several sessions is listed once).
+    Sessions come from systemd-logind; a session's shell is the newest shell that has
+    a terminal inside the session's cgroup. tmux panes are not counted, because tmux
+    runs them in their own scopes outside the login session.
+    """
+    packet = {"name": "Logged In Users", "data": None}
+    now = time.time()
+    shell_names = readShellNames()
+
+    try:
+        sessions = readLogindSessions()
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+        print(f"[UserUtils.py]: could not read logind sessions: {error}")
+        sessions = []
+
+    sessions_by_user: dict[str, list[dict]] = {}
+    for session in sessions:
+        sessions_by_user.setdefault(session["username"], []).append(session)
+
+    # One pass over all processes: count per user, and remember the newest shell per cgroup scope.
+    process_counts: dict[str, int] = {}
+    newest_shell_by_scope: dict[str, tuple[float, str]] = {}
+    for proc in psutil.process_iter(['pid', 'username', 'name', 'terminal', 'create_time']):
+        info = proc.info
+        username = info['username']
+        if username not in sessions_by_user:
+            continue
+        process_counts[username] = process_counts.get(username, 0) + 1
+
+        if info['terminal'] and info['name'] in shell_names:
+            scope = readCgroupUnit(info['pid'])
+            current = newest_shell_by_scope.get(scope)
+            if scope and (current is None or info['create_time'] > current[0]):
+                newest_shell_by_scope[scope] = (info['create_time'], info['name'])
+
+    ret_list = []
+    for username, user_sessions in sessions_by_user.items():
+        login_time = min(session["started"] for session in user_sessions)
+        logged_in_seconds = int(now - login_time)
+
+        # Check sessions newest first; sessions without a terminal shell fall through to the login shell.
+        shell = None
+        for session in sorted(user_sessions, key=lambda session: session["started"], reverse=True):
+            newest_shell = newest_shell_by_scope.get(session["scope"])
+            if newest_shell is not None:
+                shell = newest_shell[1]
+                break
+        if shell is None:
+            shell = lookupLoginShell(username)
+
+        ret_list.append(LoggedInUser(
+            username,
+            login_time,
+            formatDuration(logged_in_seconds),
+            logged_in_seconds,
+            len(user_sessions),
+            shell,
+            process_counts.get(username, 0)
+        ))
+
+    ret_list.sort(key=lambda user: user.login_time)
+    packet["data"] = ret_list
+    return packet
 
 
 def readIoCounters(proc: psutil.Process) -> tuple[int, int] | None:
