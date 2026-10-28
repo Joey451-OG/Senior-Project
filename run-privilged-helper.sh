@@ -1,5 +1,5 @@
 #!/bin/bash
-# Starts the privileged helpers (cron, processes, run commands) and stops them all on ^C,
+# Starts the privileged helpers (cron, processes, run commands, log off) and stops them all on ^C,
 # or as soon as either one exits (e.g. it failed to start).
 set -u
 
@@ -15,7 +15,7 @@ fi
 helper_pids=()
 # setsid keeps the helpers out of the terminal's process group, so ^C reaches only this
 # script, which then sends each helper exactly one SIGTERM (a second signal force-exits them).
-for helper_script in AdminCron.py AdminProcesses.py AdminRunCommands.py; do
+for helper_script in AdminCron.py AdminProcesses.py AdminRunCommands.py AdminLogoff.py; do
     setsid "$python_bin" "$project_dir/src/privileged/$helper_script" &
     helper_pids+=($!)
 done

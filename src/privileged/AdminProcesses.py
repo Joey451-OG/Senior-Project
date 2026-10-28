@@ -2,7 +2,7 @@
 Privileged process helper (stateless request/response).
 
 This process runs with the privileges needed to signal other users' processes
-and does nothing else: its only job is killing a process by pid. It will never
+and does nothing else: its only job is killing processes by pid. It will never
 kill a process owned by root. It keeps no state, runs no background loop, and
 never talks to browsers. Only the unprivileged main API connects to it, over a
 Unix domain socket.
@@ -19,8 +19,15 @@ should reconnect when it finds its connection closed.
     failure:   {"ok": false, "error": "Refusing to kill a process owned by root"}
 
 Commands:
-    kill_process   send SIGTERM to one process
-                   args: {"pid": int}
+    kill_process           send SIGTERM to one process
+                           args: {"pid": int}
+    force_kill_processes   send SIGKILL to each of several processes
+                           args: {"pids": [int, ...]}
+                           result: {"signal": "SIGKILL", "killed_pids": [...],
+                                    "refused": [{"pid": int, "error": str}, ...]}
+                           Every pid is validated before any is signalled; a malformed or
+                           protected pid fails the whole request. Root-owned or vanished
+                           processes are reported per pid in "refused" instead.
 
 Root protection:
     A process is refused if ANY of its real, effective, saved or filesystem uids
@@ -74,6 +81,9 @@ root_uid = 0
 # pid 1 is init and pid 2 is kthreadd; both are root-owned anyway, this is just belt and braces.
 protected_pids = {1, 2}
 kill_signal = signal.SIGTERM
+force_kill_signal = signal.SIGKILL
+# A request line is capped at maximum_request_line_bytes anyway; this just keeps the batch bounded.
+maximum_force_kill_pids = 512
 
 command_handlers : dict[str, Callable[[dict], dict]] # Instantiated above if name-main
 
@@ -182,9 +192,9 @@ def lookupUsername(uid: int) -> str:
         return str(uid)
 
 
-def killProcess(pid: int) -> dict:
+def killProcess(pid: int, signal_to_send: signal.Signals = kill_signal) -> dict:
     """
-    Blocking kill of one non-root process.
+    Blocking kill of one non-root process (SIGTERM unless signal_to_send says otherwise).
 
     Order matters for safety against pid reuse:
       1. pin the process with a pidfd,
@@ -209,7 +219,7 @@ def killProcess(pid: int) -> dict:
             raise RequestError("Refusing to kill a process owned by root")
 
         try:
-            signal.pidfd_send_signal(process_fd, kill_signal)
+            signal.pidfd_send_signal(process_fd, signal_to_send)
         except ProcessLookupError:
             raise RequestError("No such process") from None
     finally:
@@ -217,8 +227,8 @@ def killProcess(pid: int) -> dict:
 
     real_uid = process_user_ids[0]
     username = lookupUsername(real_uid)
-    logger.info("Sent %s to pid %d (owner %s)", kill_signal.name, pid, username)
-    return {"pid": pid, "username": username, "signal": kill_signal.name}
+    logger.info("Sent %s to pid %d (owner %s)", signal_to_send.name, pid, username)
+    return {"pid": pid, "username": username, "signal": signal_to_send.name}
 
 
 def handleKillProcessCommand(request_payload: dict) -> dict:
@@ -230,6 +240,34 @@ def handleKillProcessCommand(request_payload: dict) -> dict:
     except Exception:
         logger.exception("Failed to kill pid %d", pid)
         raise RequestError("Failed to kill process") from None
+
+
+def validateRequestedPids(requested_pids) -> list[int]:
+    """The pid list must be a non-empty JSON array of valid pids; duplicates are dropped, order kept."""
+    isPidsNonEmptyList = type(requested_pids) == list and len(requested_pids) > 0
+    if not isPidsNonEmptyList:
+        raise RequestError("pids must be a non-empty list")
+    if len(requested_pids) > maximum_force_kill_pids:
+        raise RequestError(f"pids may contain at most {maximum_force_kill_pids} entries")
+    return list(dict.fromkeys(validateRequestedPid(requested_pid) for requested_pid in requested_pids))
+
+
+def handleForceKillProcessesCommand(request_payload: dict) -> dict:
+    pids = validateRequestedPids(request_payload.get("pids"))
+    killed_process_ids = []
+    refused_processes = []
+    for pid in pids:
+        try:
+            killProcess(pid, force_kill_signal)
+        except RequestError as request_error:
+            refused_processes.append({"pid": pid, "error": str(request_error)})
+            continue
+        except Exception:
+            logger.exception("Failed to force kill pid %d", pid)
+            refused_processes.append({"pid": pid, "error": "Failed to kill process"})
+            continue
+        killed_process_ids.append(pid)
+    return {"signal": force_kill_signal.name, "killed_pids": killed_process_ids, "refused": refused_processes}
 
 
 async def buildResponse(request_line_bytes: bytes) -> dict:
@@ -382,6 +420,7 @@ async def runHelper() -> None:
 # Each handler is a blocking function that takes the request dictionary and returns a result dictionary.
 command_handlers: dict[str, Callable[[dict], dict]] = {
     "kill_process": handleKillProcessCommand,
+    "force_kill_processes": handleForceKillProcessesCommand,
 }
 
 if __name__ == "__main__":
