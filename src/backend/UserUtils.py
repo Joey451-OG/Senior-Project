@@ -175,7 +175,7 @@ def getLoggedInUsers() -> dict:
 
         if info['terminal'] and info['name'] in shell_names:
             scope = readCgroupUnit(info['pid'])
-            current = newest_shell_by_scope.get(scope)
+            current = newest_shell_by_scope.get(scope) # type: ignore
             if scope and (current is None or info['create_time'] > current[0]):
                 newest_shell_by_scope[scope] = (info['create_time'], info['name'])
 

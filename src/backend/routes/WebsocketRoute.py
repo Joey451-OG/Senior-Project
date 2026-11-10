@@ -1,7 +1,8 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
 import UserUtils
+from routes.AuthRoute import requireAdministrator
 
 
 class WSConnectionManager:
@@ -31,7 +32,8 @@ class WSConnectionManager:
             self.disconnect(dead_connection)
 
 
-websocket_router = APIRouter(prefix="/ws", tags=["websockets"])
+# Checked once per connection, on the upgrade request.
+websocket_router = APIRouter(prefix="/ws", tags=["websockets"], dependencies=[Depends(requireAdministrator)])
 
 cpu_load_connection_manager = WSConnectionManager()
 cpu_temperature_connection_manager = WSConnectionManager()

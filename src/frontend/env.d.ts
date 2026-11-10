@@ -1,1 +1,13 @@
 /// <reference types="vite/client" />
+
+// Firebase web-app config, from src/frontend/.env.local (see install_notes.txt)
+interface ImportMetaEnv {
+    readonly VITE_FIREBASE_API_KEY: string
+    readonly VITE_FIREBASE_AUTH_DOMAIN: string
+    readonly VITE_FIREBASE_PROJECT_ID: string
+    readonly VITE_FIREBASE_APP_ID: string
+}
+
+interface ImportMeta {
+    readonly env: ImportMetaEnv
+}

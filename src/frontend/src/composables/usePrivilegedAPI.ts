@@ -13,6 +13,7 @@ import {
 import { domain, port } from "@/globals/projectVars";
 
 const papi_url: string = `http://${domain}:${port}/papi`
+// Every request carries the session cookie (credentials: 'include'); the API refuses any without it.
 
 // FastAPI errors carry a readable {"detail": "..."} body
 async function readErrorDetail(response: Response, fallback: string): Promise<string> {
@@ -27,7 +28,7 @@ export function useCrontabs() {
 
     async function refresh() {
         try {
-            const response = await fetch(`${papi_url}/cron`)
+            const response = await fetch(`${papi_url}/cron`, { credentials: 'include' })
             if (!response.ok) {
                 error.value = `GET /papi/cron failed: ${response.status} ${await response.text()}`
                 return
@@ -42,6 +43,8 @@ export function useCrontabs() {
     // Changes are infrequent, so the backend pushes a "cron_changed" SSE event
     // and the full listing is re-fetched only when one arrives.
     const { data: eventData, status, close, open } = useEventSource(`${papi_url}/cron/events`, ['cron_changed'] as const, {
+        // Sends the session cookie, which the API requires
+        withCredentials: true,
         autoReconnect: {
             retries: 5,
             delay: 1000,
@@ -67,7 +70,7 @@ export function useCrontabs() {
 }
 
 export async function fetchCrontabSnapshot(username: string): Promise<CrontabSnapshot> {
-    const response = await fetch(`${papi_url}/cron/${encodeURIComponent(username)}`)
+    const response = await fetch(`${papi_url}/cron/${encodeURIComponent(username)}`, { credentials: 'include' })
     if (!response.ok) {
         throw new Error(`GET /papi/cron/${username} failed: ${response.status} ${await response.text()}`)
     }
@@ -76,7 +79,7 @@ export async function fetchCrontabSnapshot(username: string): Promise<CrontabSna
 
 // Sends SIGTERM via the privileged process helper, which refuses root-owned processes.
 export async function killProcess(pid: number): Promise<KilledProcess> {
-    const response = await fetch(`${papi_url}/processes/${pid}`, { method: 'DELETE' })
+    const response = await fetch(`${papi_url}/processes/${pid}`, { credentials: 'include', method: 'DELETE' })
     if (!response.ok) {
         throw new Error(await readErrorDetail(response, `DELETE /papi/processes/${pid} failed: ${response.status}`))
     }
@@ -86,7 +89,7 @@ export async function killProcess(pid: number): Promise<KilledProcess> {
 // force: also SIGKILL whatever is still running after the SIGTERM pass
 export async function logoutUser(username: string, force = false): Promise<LoggedOffUser> {
     const url = `${papi_url}/users/${encodeURIComponent(username)}/logout${force ? '?force=true' : ''}`
-    const response = await fetch(url, { method: 'POST' })
+    const response = await fetch(url, { credentials: 'include', method: 'POST' })
     if (!response.ok) {
         throw new Error(await readErrorDetail(response, `POST /papi/users/${username}/logout failed: ${response.status}`))
     }
@@ -94,7 +97,7 @@ export async function logoutUser(username: string, force = false): Promise<Logge
 }
 
 export async function fetchCrontabContent(username: string): Promise<CrontabContent> {
-    const response = await fetch(`${papi_url}/cron/${encodeURIComponent(username)}/content`)
+    const response = await fetch(`${papi_url}/cron/${encodeURIComponent(username)}/content`, { credentials: 'include' })
     if (!response.ok) {
         throw new Error(await readErrorDetail(response, `GET /papi/cron/${username}/content failed: ${response.status}`))
     }
@@ -106,6 +109,7 @@ export class CrontabConflictError extends Error {}
 
 export async function saveCrontab(username: string, content: string, expectedHash: string): Promise<CrontabContent> {
     const response = await fetch(`${papi_url}/cron/${encodeURIComponent(username)}`, {
+        credentials: 'include',
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, expected_hash: expectedHash }),
@@ -125,7 +129,7 @@ export function useAdminCommands() {
 
     async function refresh() {
         try {
-            const response = await fetch(`${papi_url}/commands`)
+            const response = await fetch(`${papi_url}/commands`, { credentials: 'include' })
             if (!response.ok) {
                 error.value = await readErrorDetail(response, `GET /papi/commands failed: ${response.status}`)
                 return
@@ -140,6 +144,8 @@ export function useAdminCommands() {
     // The backend polls /etc/waru/sudo_commands and pushes "commands_changed" when its
     // commands change, so lines added to or removed from the file show up on their own.
     const { data: eventData, status } = useEventSource(`${papi_url}/commands/events`, ['commands_changed'] as const, {
+        // Sends the session cookie, which the API requires
+        withCredentials: true,
         autoReconnect: {
             retries: 5,
             delay: 1000,
@@ -170,7 +176,7 @@ export async function runAdminCommand(
     signal?: AbortSignal,
 ): Promise<void> {
     // POST because it has side effects, which rules out EventSource; the body is read as a stream instead
-    const response = await fetch(`${papi_url}/commands/${encodeURIComponent(commandId)}/run`, { method: 'POST', signal })
+    const response = await fetch(`${papi_url}/commands/${encodeURIComponent(commandId)}/run`, { credentials: 'include', method: 'POST', signal })
     if (!response.ok || !response.body) {
         throw new Error(await readErrorDetail(response, `POST /papi/commands/${commandId}/run failed: ${response.status}`))
     }

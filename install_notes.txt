@@ -1,1 +1,24 @@
-User, who is assumed to be sudo, will need to exsist within the "waru" group.
+User, who is assumed to be sudo, will need to exist within the "waru" group.
+
+Authentication (Firebase, with a required TOTP second factor)
+------------------------------------------------------------
+1. Firebase console: create a project and add a Web app; keep its config values.
+2. Authentication > Sign-in method: enable Email/Password and Google.
+3. Authentication > Settings:
+   - Upgrade to "Firebase Authentication with Identity Platform" (free on the Spark plan, capped
+     at 3,000 daily users). Multi-factor auth needs it. SMS second factors need billing; TOTP doesn't.
+   - Authorized domains: add jgsps.cs.olemiss.edu (localhost is there by default).
+4. Turn on TOTP (the console has no switch for it). Project settings > Service accounts >
+   Generate new private key, then:
+       GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json .venv/bin/python scripts/enable-firebase-totp.py
+   Delete the key afterwards; the dashboard itself doesn't use one.
+5. Config files (both gitignored; see the .env.example next to each):
+       .env                     FIREBASE_PROJECT_ID
+       src/frontend/.env.local  VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN,
+                                VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID
+6. Administrators: one email per line ('#' starts a comment). The API re-reads the file on every
+   request and refuses it unless only root can write it.
+       sudo install -o root -g waru -m 0640 /dev/null /etc/waru/auth-accounts
+       sudoedit /etc/waru/auth-accounts
+7. Open the dashboard by the same host name the API is reached at (e.g. http://jgsps.cs.olemiss.edu:3001);
+   the session cookie is only sent when the page and API share a host.

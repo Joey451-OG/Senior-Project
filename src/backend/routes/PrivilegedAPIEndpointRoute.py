@@ -32,7 +32,7 @@ from collections.abc import AsyncIterable
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import APIRouter, Header, HTTPException, Path
+from fastapi import APIRouter, Depends, Header, HTTPException, Path
 from fastapi.responses import StreamingResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
@@ -41,6 +41,7 @@ from PROJECTTypes import (
     CronChangeEvent, CrontabContent, CrontabListing, CrontabSnapshot, CrontabWriteRequest,
     KilledProcess, LoggedOffUser, RefusedProcess, UserCrontab,
 )
+from routes.AuthRoute import requireAdministrator
 
 logger = logging.getLogger("privileged_api")
 
@@ -373,7 +374,8 @@ async def relayAdminCommandRun(
 # --- Routes (final paths: /papi/cron, /papi/cron/events, /papi/cron/{username}[/content], /papi/processes/{pid},
 #                         /papi/commands, /papi/commands/events, /papi/commands/{command_id}/run) ---
 
-p_api_endpoint_router = APIRouter(prefix="/papi", tags=["Privileged Endpoints"])
+# Every route here acts as root through a helper, so all of them require an administrator.
+p_api_endpoint_router = APIRouter(prefix="/papi", tags=["Privileged Endpoints"], dependencies=[Depends(requireAdministrator)])
 
 
 @p_api_endpoint_router.get("/cron", response_model=CrontabListing)

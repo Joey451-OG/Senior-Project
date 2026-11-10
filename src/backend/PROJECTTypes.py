@@ -106,3 +106,16 @@ class AdminCommandListing(BaseModel):
 
 class AdminCommandsChangeEvent(BaseModel):
     version: int
+
+
+# --- Authentication (Firebase sign-in, authorized by /etc/waru/auth-accounts) ---
+
+class SessionRequest(BaseModel):
+    # A Firebase ID token from a sign-in that included the second factor
+    id_token: str
+
+class AuthStatus(BaseModel):
+    email: str
+    uid: str
+    # False for signed-in accounts that aren't listed in /etc/waru/auth-accounts
+    is_administrator: bool

@@ -168,3 +168,13 @@ export type AdminCommandRunEvent =
     | { ok: true, event: 'output', stream: 'stdout' | 'stderr', data: string }
     | { ok: true, event: 'finished', result: AdminCommandResult }
     | { ok: false, error: string }
+
+
+// --- Authentication (Firebase sign-in, authorized by /etc/waru/auth-accounts) ---
+
+export interface AuthStatus {
+    email: string,
+    uid: string,
+    // False for signed-in accounts that aren't listed in /etc/waru/auth-accounts
+    is_administrator: boolean
+}

@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
  
+from ServerSettings import frontend_origins
+from routes.AuthRoute import auth_router
 from routes.WebsocketRoute import websocket_router, registerBroadcastJobs
 from routes.PrivilegedAPIEndpointRoute import (
     p_api_endpoint_router, registerCronPollJob, registerAdminCommandsPollJob,
@@ -31,18 +33,15 @@ async def lifespan(application: FastAPI):
  
 api = FastAPI(lifespan=lifespan)
 
-# The Vite dev server (port 3001) is a different origin from this API (port 3002),
-# so the browser needs CORS headers before fetch/EventSource can read /papi responses.
-frontend_origins = [
-    "http://130.74.96.14:3001",
-    "http://jgsps.cs.olemiss.edu:3001",
-    "http://localhost:3001",
-]
+# frontend_origins (ServerSettings.py) are the Vite dev server's origins. Credentials are
+# allowed so the browser sends the session cookie with fetch/EventSource requests.
 api.add_middleware(
     CORSMiddleware,
     allow_origins=frontend_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+api.include_router(auth_router)
 api.include_router(websocket_router)
 api.include_router(p_api_endpoint_router)  
