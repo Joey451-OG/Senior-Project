@@ -1,40 +1,10 @@
+/* Color theme (palette + semantic color tokens) lives in its own file */
+@import './colors.css';
+
+/* Non-color design tokens */
 :root {
-    --bg: #f4f5f7;
-    --surface: #ffffff;
-    --surface-2: #f0f1f4;
-    --border: #e1e3e8;
-    --text: #1b1f27;
-    --text-muted: #6b7280;
-    --accent: #e8730c;
-    --temp: #1a97a8;
-    --ok: #1f9d6b;
-    --warn: #c9a400;
-    --danger: #d64545;
-    --track: #e6e8ed;
-    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
     --radius: 12px;
     --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
-
-    color-scheme: light;
-}
-
-/* data-theme is set on <html> by useDark in App.vue */
-:root[data-theme="dark"] {
-    --bg: #0f1218;
-    --surface: #171b23;
-    --surface-2: #1e232d;
-    --border: #2a303c;
-    --text: #e6e8ec;
-    --text-muted: #8b93a3;
-    --accent: #ff8a2b;
-    --temp: #3cc4d4;
-    --ok: #34c08a;
-    --warn: #f2d03b;
-    --danger: #f06464;
-    --track: #262c37;
-    --shadow: none;
-
-    color-scheme: dark;
 }
 
 *,

@@ -1,0 +1,89 @@
+/*
+ * Waru color theme
+ *
+ * Two layers:
+ *   1. Palette   - raw color scales (50 = lightest in light mode, darkest in dark mode).
+ *                  The dark scales are the light scales reversed, so a given step keeps
+ *                  the same *role* in both themes (e.g. text-900 is always high-contrast text).
+ *                  Only the steps the app actually uses are defined here.
+ *   2. Semantic  - the tokens components use (--bg, --text, --accent, ...). Components should
+ *                  only reference these, never the palette steps directly.
+ *
+ * Note: the palette's "accent" scale is green. The semantic --accent token is the app's
+ * highlight color and maps to the orange "primary" scale instead.
+ *
+ * The theme is selected by the data-theme attribute on <html>, set by useDark in
+ * composables/useTheme.ts (follows the OS preference until the user toggles it).
+ * The previous color scheme is saved in colors.css.bak.
+ */
+
+/* ---------- 1. Palette: light ---------- */
+:root {
+    --text-600: #886044;        /* muted text */
+    --text-900: #221811;        /* main text */
+
+    --background-50: #f7f2ed;   /* cards / panels */
+    --background-100: #f0e6db;  /* page background, input fields */
+    --background-200: #e0ccb8;  /* borders, gauge/progress tracks */
+
+    --primary-600: #cc5c00;     /* orange: highlight color (--accent) */
+    --secondary-600: #568844;   /* olive green: temperature readings */
+    --accent-600: #448943;      /* green: success / OK states */
+}
+
+/* ---------- 1. Palette: dark (same steps, reversed scale) ---------- */
+:root[data-theme="dark"] {
+    --text-600: #bb9377;        /* muted text */
+    --text-900: #eee4dd;        /* main text */
+
+    --background-50: #120d08;   /* page background */
+    --background-100: #241a0f;  /* cards / panels */
+    --background-200: #47331f;  /* borders, gauge/progress tracks */
+
+    --primary-600: #ff8f33;     /* orange: highlight color (--accent) */
+    --secondary-600: #89bb77;   /* olive green: temperature readings */
+    --accent-600: #77bc76;      /* green: success / OK states */
+}
+
+/* ---------- 2. Semantic tokens (shared by both themes) ---------- */
+:root {
+    /* Surfaces */
+    --bg: var(--background-100);          /* page background behind the cards */
+    --surface: var(--background-50);      /* card / panel background */
+    --surface-2: var(--background-100);   /* inset areas inside cards: inputs, table headers, list rows */
+    --border: var(--background-200);      /* card, input and divider borders */
+    --track: var(--background-200);       /* unfilled part of gauges and progress bars */
+
+    /* Text */
+    --text: var(--text-900);              /* body text and headings */
+    --text-muted: var(--text-600);        /* card titles, labels, secondary info, placeholders */
+
+    /* Highlights and data */
+    --accent: var(--primary-600);         /* primary buttons, links, focus rings, active states, CPU load line */
+    --temp: var(--secondary-600);         /* temperature readings in the CPU gauge */
+
+    /* Status */
+    --ok: var(--accent-600);              /* success notices and "ok" indicators */
+    --warn: #c9a400;                      /* warning notices (not in the theme palette; kept from the old scheme) */
+    --danger: #d64545;                    /* errors, destructive buttons (not in the theme palette; kept from the old scheme) */
+
+    /* Card shadow, tinted with the darkest background tone */
+    --shadow: 0 1px 2px rgba(36, 26, 15, 0.06), 0 1px 3px rgba(36, 26, 15, 0.08);
+
+    color-scheme: light;
+}
+
+/* ---------- 2. Semantic overrides: dark ---------- */
+:root[data-theme="dark"] {
+    /* In dark mode cards sit lighter than the page, so bg and surface swap steps */
+    --bg: var(--background-50);
+    --surface: var(--background-100);
+    --surface-2: color-mix(in srgb, var(--background-100) 60%, var(--background-200));  /* between card and border */
+
+    --warn: #f2d03b;                      /* brighter warning for dark backgrounds */
+    --danger: #f06464;                    /* brighter danger for dark backgrounds */
+
+    --shadow: none;                       /* shadows don't read on dark surfaces; borders do the work */
+
+    color-scheme: dark;
+}
