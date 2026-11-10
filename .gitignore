@@ -1,6 +1,7 @@
 # files
 .env
 CLAUDE.md
+.project-history
 
 # directories
 .venv/

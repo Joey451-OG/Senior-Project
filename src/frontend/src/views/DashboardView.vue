@@ -33,9 +33,9 @@
     <main class="dashboard">
         <cpu-gauge class="cpu"/>
         <logged-in-users class="users"/>
+        <admin-commands class="cmds"/>
         <user-procs class="procs"/>
         <crontab-list class="cron"/>
-        <admin-commands class="cmds"/>
     </main>
 
     <footer>
@@ -128,8 +128,8 @@
         grid-template-areas:
             "cpu   procs"
             "users procs"
-            "cron  cron"
-            "cmds  cmds";
+            "cmds  procs"
+            "cron  cron";
         gap: 20px;
         max-width: 1280px;
         margin: 0 auto;
