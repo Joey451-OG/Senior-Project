@@ -1,8 +1,7 @@
 <script setup lang="ts">
-    import { computed } from 'vue'
+    import { computed, watch } from 'vue'
     import { useLoadReading, useTemperatureReading } from '@/composables/useDashboardWS'
     import { type TemperatureSensor } from '@/globals/projectTypes'
-    import StatusPill from './StatusPill.vue'
 
     const { data: loadData, status: loadStatus } = useLoadReading()
     const { data: tempData, status: tempStatus } = useTemperatureReading()
@@ -63,6 +62,10 @@
         return 'CONNECTING'
     })
 
+    // The surrounding card (ResourceGauge.vue) owns the header and its status pill
+    const emit = defineEmits<{ status: [status: string] }>()
+    watch(status, (value) => emit('status', value), { immediate: true })
+
     // Both arcs share the same center; each is a 180° path with pathLength=100
     // so stroke-dasharray maps directly onto a percentage.
     const arcPath = (radius: number) => `M ${100 - radius} 100 A ${radius} ${radius} 0 0 1 ${100 + radius} 100`
@@ -71,29 +74,24 @@
 </script>
 
 <template>
-    <section class="card gauge-card">
-        <header class="card-header">
-            <h2 class="card-title">CPU</h2>
-            <StatusPill :status="status" />
-        </header>
-
+    <div class="gauge-body">
         <div class="gauge">
             <svg viewBox="0 0 200 110" role="img"
                  :aria-label="`CPU load ${load ?? 'unknown'} percent, temperature ${temp ?? 'unknown'} degrees Celsius`">
                 <path class="track" :d="arcPath(OUTER_RADIUS)" stroke-width="14" />
-                <path class="arc load" :class="[loadLevel, { empty: loadFill < 0.5 }]" :d="arcPath(OUTER_RADIUS)" stroke-width="14"
+                <path class="arc outer" :class="[loadLevel, { empty: loadFill < 0.5 }]" :d="arcPath(OUTER_RADIUS)" stroke-width="14"
                       pathLength="100" :stroke-dasharray="`${loadFill} 100`" />
 
                 <path class="track" :d="arcPath(INNER_RADIUS)" stroke-width="8" />
-                <path class="arc temp" :class="[tempLevel, { empty: tempFill < 0.5 }]" :d="arcPath(INNER_RADIUS)" stroke-width="8"
+                <path class="arc inner" :class="[tempLevel, { empty: tempFill < 0.5 }]" :d="arcPath(INNER_RADIUS)" stroke-width="8"
                       pathLength="100" :stroke-dasharray="`${tempFill} 100`" />
             </svg>
 
             <div class="readout">
-                <div class="load-value">
+                <div class="readout-value">
                     {{ load !== null ? Math.round(load) : '--' }}<span class="unit">%</span>
                 </div>
-                <div class="temp-value" :class="tempLevel">
+                <div class="readout-sub" :class="tempLevel">
                     {{ temp !== null ? Math.round(temp) : '--' }}&deg;C
                 </div>
             </div>
@@ -101,11 +99,11 @@
 
         <dl class="legend">
             <div>
-                <dt><span class="swatch load"></span>Load</dt>
+                <dt><span class="swatch outer"></span>Load</dt>
                 <dd>{{ load !== null ? `${load.toFixed(1)}%` : '--' }}</dd>
             </div>
             <div>
-                <dt><span class="swatch temp"></span>Temp</dt>
+                <dt><span class="swatch inner"></span>Temp</dt>
                 <dd>{{ temp !== null ? `${temp.toFixed(1)}°C` : '--' }}</dd>
             </div>
             <div>
@@ -113,107 +111,14 @@
                 <dd>{{ tempHigh }}° / {{ tempCritical }}°</dd>
             </div>
         </dl>
-    </section>
+    </div>
 </template>
 
+<style scoped src="../assets/gauge.css"></style>
+
 <style scoped>
-    .gauge {
-        position: relative;
-        max-width: 300px;
-        margin: 0 auto;
+    .gauge-body {
+        --outer-color: var(--accent);
+        --inner-color: var(--temp);
     }
-
-    svg {
-        display: block;
-        width: 100%;
-        overflow: visible;
-    }
-
-    path {
-        fill: none;
-        stroke-linecap: round;
-    }
-
-    .track {
-        stroke: var(--track);
-    }
-
-    .arc {
-        transition: stroke-dasharray 0.6s ease, stroke 0.3s ease;
-    }
-
-    /* A round linecap still draws a dot at 0%, so hide arcs with nothing to show */
-    .arc.empty { opacity: 0; }
-
-    .arc.load { stroke: var(--accent); }
-    .arc.temp { stroke: var(--temp); }
-    .arc.warn { stroke: var(--warn); }
-    .arc.danger { stroke: var(--danger); }
-
-    .readout {
-        position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        text-align: center;
-        line-height: 1.1;
-    }
-
-    .load-value {
-        font-size: 2.6rem;
-        font-weight: 650;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -0.02em;
-    }
-
-    .unit {
-        font-size: 1.1rem;
-        font-weight: 500;
-        color: var(--text-muted);
-        margin-left: 2px;
-    }
-
-    .temp-value {
-        font-size: 0.95rem;
-        font-weight: 500;
-        color: var(--temp);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .temp-value.warn { color: var(--warn); }
-    .temp-value.danger { color: var(--danger); }
-
-    .legend {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-        margin: 20px 0 0;
-        padding-top: 14px;
-        border-top: 1px solid var(--border);
-        text-align: center;
-    }
-
-    dt {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-
-    dd {
-        margin: 2px 0 0;
-        font-weight: 600;
-        font-variant-numeric: tabular-nums;
-    }
-
-    .swatch {
-        width: 10px;
-        height: 10px;
-        border-radius: 3px;
-    }
-
-    .swatch.load { background: var(--accent); }
-    .swatch.temp { background: var(--temp); }
 </style>

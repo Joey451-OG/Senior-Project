@@ -45,7 +45,7 @@ def main() -> int:
                             domain = sys.argv[i + 1]
                         case "-p":
                             error_word = "port"
-                            port = sys.argv[i + 1]
+                            port = int(sys.argv[i + 1])
                 except IndexError or ValueError:
                     print(f"ERROR: Please provide a/an {error_word} with {flag}")
                     return 2

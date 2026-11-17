@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { useWebSocket } from '@vueuse/core'
 import { 
     type LoadReading, 
+    type MemoryReading,
     type TemperatureReading,
     type UserProc,
     type UserProcsPacket,
@@ -74,6 +75,39 @@ export function useLoadReading() {
     })
 
     return { data, status, close, open }    
+}
+
+export function useMemoryReading() {
+    const data = ref<MemoryReading | null>(null)
+
+    const ws_url: string = `ws://${domain}:${port}/ws/memory`
+
+    const { status, close, open } = useWebSocket(ws_url, {
+        autoReconnect: {
+            retries: 5,
+            delay: 1000,
+            onFailed() {
+                console.error('memory-reading socket: failed to reconnect after 5 attempts')
+            },
+        },
+
+        onMessage(ws, event) {
+            try {
+                if (JSON.parse(event.data).type == 'ping') {
+                    // found a ping packet, respond
+                    console.log("SENDING PING")
+                    ws.send(JSON.stringify('pong'))
+                    return
+                }
+
+                data.value = JSON.parse(event.data) as MemoryReading
+            } catch (err) {
+                console.error('Failed to parse memory-reading message', err)
+            }
+        },
+    })
+
+    return { data, status, close, open }
 }
 
 export function useUserProcs() {

@@ -22,6 +22,17 @@ class LoggedInUser(NamedTuple):
     shell: str | None             # shell running in the newest session, else the login shell from passwd
     process_count: int            # every process the user owns, not just ones in their sessions
 
+class MemoryUsage(BaseModel):
+    type: str = "memory"
+    # Bytes. used is total - available, so it matches percent and leaves out reclaimable cache.
+    total: int
+    used: int
+    available: int
+    percent: float
+    swap_total: int               # 0 when the machine has no swap
+    swap_used: int
+    swap_percent: float
+
 class UserProcesses(NamedTuple):
     pid: int | None
     name: str | None

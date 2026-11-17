@@ -8,7 +8,7 @@ import time
 import apscheduler
 import crontab
 
-from PROJECTTypes import TemperatureReading, UsersSession, UserProcesses, LoggedInUser
+from PROJECTTypes import TemperatureReading, UsersSession, UserProcesses, LoggedInUser, MemoryUsage
 
 # Setup
 psutil.cpu_percent()
@@ -67,6 +67,19 @@ def lookupLoginShell(username: str) -> str | None:
 def getCpuUtilization() -> dict:
     payload = {"type": "cpu", "value": psutil.cpu_percent()}
     return payload
+
+def getMemoryUsage() -> dict:
+    memory = psutil.virtual_memory()
+    swap = psutil.swap_memory()
+    return MemoryUsage(
+        total=memory.total,
+        used=memory.total - memory.available,
+        available=memory.available,
+        percent=memory.percent,
+        swap_total=swap.total,
+        swap_used=swap.used,
+        swap_percent=swap.percent,
+    ).model_dump()
 
 def getCpuTemperatures() -> dict:
     temps = psutil.sensors_temperatures()

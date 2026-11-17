@@ -193,3 +193,12 @@ def test_WebSocket(client):
     with client.websocket_connect("/ws/cpu-load", headers={"Origin": allowed_origin}) as websocket:
         data = websocket.receive_json()
         assert data["type"] == "cpu"
+
+
+def test_MemoryWebSocket(client):
+    client.cookies.set(AuthRoute.session_cookie_name, "admin")
+    with client.websocket_connect("/ws/memory", headers={"Origin": allowed_origin}) as websocket:
+        data = websocket.receive_json()
+        assert data["type"] == "memory"
+        assert 0 <= data["percent"] <= 100
+        assert 0 < data["used"] <= data["total"]

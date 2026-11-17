@@ -70,6 +70,18 @@ export interface LoadReading {
     value: number | null
 }
 
+// /ws/memory payload; sizes are bytes, used = total - available (so it matches percent)
+export interface MemoryReading {
+    type: 'memory',
+    total: number,
+    used: number,
+    available: number,
+    percent: number,
+    swap_total: number,         // 0 when the machine has no swap
+    swap_used: number,
+    swap_percent: number
+}
+
 export interface CronJobEntry {
     schedule: string,
     command: string,

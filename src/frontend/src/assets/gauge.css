@@ -1,0 +1,106 @@
+/*
+ * Shared look of the two-arc gauges (CpuGauge.vue, MemoryGauge.vue).
+ * Pulled in with <style scoped src="../assets/gauge.css">, so it stays scoped to each gauge.
+ * Each gauge sets --outer-color and --inner-color on its root element.
+ */
+
+.gauge {
+    position: relative;
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+svg {
+    display: block;
+    width: 100%;
+    overflow: visible;
+}
+
+path {
+    fill: none;
+    stroke-linecap: round;
+}
+
+.track {
+    stroke: var(--track);
+}
+
+.arc {
+    transition: stroke-dasharray 0.6s ease, stroke 0.3s ease;
+}
+
+/* A round linecap still draws a dot at 0%, so hide arcs with nothing to show */
+.arc.empty { opacity: 0; }
+
+.arc.outer { stroke: var(--outer-color); }
+.arc.inner { stroke: var(--inner-color); }
+.arc.warn { stroke: var(--warn); }
+.arc.danger { stroke: var(--danger); }
+
+.readout {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    text-align: center;
+    line-height: 1.1;
+}
+
+.readout-value {
+    font-size: 2.6rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+.unit {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-left: 2px;
+}
+
+/* Secondary reading under the big number; matches the inner arc */
+.readout-sub {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--inner-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.readout-sub.warn { color: var(--warn); }
+.readout-sub.danger { color: var(--danger); }
+
+.legend {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 20px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+}
+
+dt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+dd {
+    margin: 2px 0 0;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+.swatch.outer { background: var(--outer-color); }
+.swatch.inner { background: var(--inner-color); }

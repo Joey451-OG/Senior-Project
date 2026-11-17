@@ -31,7 +31,7 @@
     </header>
 
     <main class="dashboard">
-        <cpu-gauge class="cpu"/>
+        <resource-gauge class="cpu"/>
         <logged-in-users class="users"/>
         <admin-commands class="cmds"/>
         <user-procs class="procs"/>

@@ -37,6 +37,7 @@ websocket_router = APIRouter(prefix="/ws", tags=["websockets"], dependencies=[De
 
 cpu_load_connection_manager = WSConnectionManager()
 cpu_temperature_connection_manager = WSConnectionManager()
+memory_connection_manager = WSConnectionManager()
 user_procs_connection_manager = WSConnectionManager()
 logged_in_users_connection_manager = WSConnectionManager()
 
@@ -58,6 +59,9 @@ async def broadcastCpuLoad():
 async def broadcastCpuTemperatures():
     await cpu_temperature_connection_manager.broadcast(UserUtils.getCpuTemperatures())
 
+async def broadcastMemoryUsage():
+    await memory_connection_manager.broadcast(UserUtils.getMemoryUsage())
+
 async def broadcastUserProcs():
     await user_procs_connection_manager.broadcast(UserUtils.getUserProcs())
 
@@ -75,6 +79,8 @@ def registerBroadcastJobs(scheduler: AsyncIOScheduler, broadcast_interval_second
                       id="cpu_load_broadcast", replace_existing=True)
     scheduler.add_job(broadcastCpuTemperatures, "interval", seconds=broadcast_interval_seconds,
                       id="cpu_temperature_broadcast", replace_existing=True)
+    scheduler.add_job(broadcastMemoryUsage, "interval", seconds=broadcast_interval_seconds,
+                      id="memory_broadcast", replace_existing=True)
     scheduler.add_job(broadcastUserProcs, "interval", seconds=broadcast_interval_seconds,
                       id="user_procs_broadcast", replace_existing=True)
     scheduler.add_job(broadcastLoggedInUsers, "interval", seconds=broadcast_interval_seconds,
@@ -121,7 +127,7 @@ async def runWebsocketHeartbeatLoop(ws: WebSocket, connection_manager: WSConnect
         connection_manager.disconnect(ws)
 
 
-# --- Routes (final paths: /ws/cpu-load, /ws/cpu-temp, /ws/user-procs, /ws/logged-in-users) ---
+# --- Routes (final paths: /ws/cpu-load, /ws/cpu-temp, /ws/memory, /ws/user-procs, /ws/logged-in-users) ---
 
 @websocket_router.websocket("/cpu-load")
 async def cpuLoadSocket(ws: WebSocket):
@@ -132,6 +138,11 @@ async def cpuLoadSocket(ws: WebSocket):
 async def cpuTemperatureSocket(ws: WebSocket):
     await cpu_temperature_connection_manager.connect(ws)
     await runWebsocketHeartbeatLoop(ws, cpu_temperature_connection_manager)
+
+@websocket_router.websocket("/memory")
+async def memorySocket(ws: WebSocket):
+    await memory_connection_manager.connect(ws)
+    await runWebsocketHeartbeatLoop(ws, memory_connection_manager)
 
 @websocket_router.websocket("/user-procs")
 async def userProcsSocket(ws: WebSocket):

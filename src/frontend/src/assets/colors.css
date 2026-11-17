@@ -61,6 +61,7 @@
     /* Highlights and data */
     --accent: var(--primary-600);         /* primary buttons, links, focus rings, active states, CPU load line */
     --temp: var(--secondary-600);         /* temperature readings in the CPU gauge */
+    --swap: var(--secondary-600);         /* swap usage in the memory gauge */
 
     /* Status */
     --ok: var(--accent-600);              /* success notices and "ok" indicators */
