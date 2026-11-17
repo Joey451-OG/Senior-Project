@@ -20,11 +20,9 @@ import {
     type TotpSecret,
     type User,
 } from 'firebase/auth'
-import { auth } from '@/globals/firebase'
+import { firebaseAuth } from '@/globals/firebase'
 import { type AuthStatus } from '@/globals/projectTypes'
-import { domain, port } from '@/globals/projectVars'
-
-const auth_url: string = `http://${domain}:${port}/auth`
+import { auth_url } from '@/globals/projectVars'
 
 /**
  * Where the signed-in user is on the way to the dashboard:
@@ -86,6 +84,8 @@ async function readErrorDetail(response: Response, fallback: string): Promise<st
 
 // One instance for the whole app, so every component sees the same sign-in state
 export const useAuth = createGlobalState(() => {
+    // First used after main.ts has initialized Firebase
+    const auth = firebaseAuth()
     const phase = ref<AuthPhase>('loading')
     const user = shallowRef<User | null>(null)
     const email = ref<string | null>(null)

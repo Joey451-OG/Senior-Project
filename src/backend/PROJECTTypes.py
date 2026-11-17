@@ -103,7 +103,7 @@ class LoggedOffUser(BaseModel):
     force_refused: list[RefusedProcess] = []
 
 
-# --- Admin commands (from /etc/waru/sudo_commands, via the privileged run-commands helper) ---
+# --- Admin commands (from /etc/waru/sudo-commands, via the privileged run-commands helper) ---
 
 class AdminCommand(BaseModel):
     command_id: str
@@ -120,6 +120,13 @@ class AdminCommandsChangeEvent(BaseModel):
 
 
 # --- Authentication (Firebase sign-in, authorized by /etc/waru/auth-accounts) ---
+
+class FirebaseWebConfig(BaseModel):
+    # Public Firebase web-app config, served before sign-in; the frontend passes it to initializeApp
+    api_key: str
+    auth_domain: str
+    project_id: str
+    app_id: str
 
 class SessionRequest(BaseModel):
     # A Firebase ID token from a sign-in that included the second factor

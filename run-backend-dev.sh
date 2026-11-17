@@ -11,4 +11,5 @@ fi
 # The dev servers are plain HTTP, where browsers drop Secure cookies
 export WARU_COOKIE_SECURE=false
 
-fastapi dev /home/jgadmin/Senior-Project/src/backend/main.py --host 0.0.0.0 --port 3002
+# Only Vite's dev-server proxy (port 3001) talks to the API, so it needn't listen beyond localhost
+fastapi dev /home/jgadmin/Senior-Project/src/backend/main.py --host 127.0.0.1 --port 3002

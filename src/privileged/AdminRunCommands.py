@@ -2,7 +2,7 @@
 Privileged command runner helper (stateless request/response).
 
 This process runs as root and does nothing but run the commands an administrator
-has listed in /etc/waru/sudo_commands, one command per line. Clients can only pick
+has listed in /etc/waru/sudo-commands, one command per line. Clients can only pick
 a command from that file by its id; they can never supply command text or arguments
 of their own. It keeps no state, runs no background loop, and never talks to
 browsers. Only the unprivileged main API connects to it, over a Unix domain socket.
@@ -53,7 +53,7 @@ Streaming rules:
     - The command is "finished" when /bin/sh exits. Output from anything it left
       running in the background is relayed for a short grace period, then dropped.
 
-Commands file (/etc/waru/sudo_commands):
+Commands file (/etc/waru/sudo-commands):
     - Each non-blank line is one command, run as root with `/bin/sh -c <line>`.
       Lines starting with '#' are comments. Duplicate lines are listed once.
     - A command's id is the sha256 of its line, so ids stay valid when lines are
@@ -65,7 +65,7 @@ Commands file (/etc/waru/sudo_commands):
       Otherwise the helper refuses to list or run anything.
 
     sudo install -d -o root -g root -m 0755 /etc/waru
-    sudo install -o root -g root -m 0644 /dev/null /etc/waru/sudo_commands
+    sudo install -o root -g root -m 0644 /dev/null /etc/waru/sudo-commands
 
 Environment variables (all optional):
     RUN_COMMANDS_HELPER_SOCKET           Unix socket path (default: /run/waru-dashboard/run_commands_helper.sock)
@@ -116,7 +116,7 @@ so_peergroups_option = getattr(socket, "SO_PEERGROUPS", 59)
 maximum_peer_groups_bytes = 1024
 
 # Deliberately not configurable: the location is part of the trust model.
-commands_file_path = "/etc/waru/sudo_commands"
+commands_file_path = "/etc/waru/sudo-commands"
 commands_directory_path = os.path.dirname(commands_file_path)
 required_commands_file_mode = 0o644
 maximum_commands_file_bytes = 64 * 1024

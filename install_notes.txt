@@ -12,13 +12,20 @@ Authentication (Firebase, with a required TOTP second factor)
    Generate new private key, then:
        GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json .venv/bin/python scripts/enable-firebase-totp.py
    Delete the key afterwards; the dashboard itself doesn't use one.
-5. Config files (both gitignored; see the .env.example next to each):
-       .env                     FIREBASE_PROJECT_ID
-       src/frontend/.env.local  VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN,
-                                VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID
+5. Config file .env (gitignored; copy .env.example):
+       FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_PROJECT_ID, FIREBASE_APP_ID
+       WARU_ALLOWED_ORIGINS   origins the dashboard is opened from, comma-separated
+                              (e.g. http://jgsps.cs.olemiss.edu:3001)
+   Only the backend reads it. The frontend fetches the Firebase values from GET /auth/config at
+   startup, so the built frontend works with any Firebase project without rebuilding.
 6. Administrators: one email per line ('#' starts a comment). The API re-reads the file on every
    request and refuses it unless only root can write it.
        sudo install -o root -g waru -m 0640 /dev/null /etc/waru/auth-accounts
        sudoedit /etc/waru/auth-accounts
-7. Open the dashboard by the same host name the API is reached at (e.g. http://jgsps.cs.olemiss.edu:3001);
-   the session cookie is only sent when the page and API share a host.
+7. Admin commands: one root command per line ('#' starts a comment). Refused unless the file is
+   root:root, mode 0644.
+       sudo install -o root -g root -m 0644 /dev/null /etc/waru/sudo-commands
+       sudoedit /etc/waru/sudo-commands
+8. Open the dashboard at the Vite dev server (e.g. http://jgsps.cs.olemiss.edu:3001). The API listens on
+   127.0.0.1:3002 only and is reached through Vite's proxy, so page and API are one origin. That origin
+   must be listed in WARU_ALLOWED_ORIGINS.

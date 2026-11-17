@@ -147,7 +147,7 @@ export interface LogoutNotice {
 }
 
 
-// --- Admin commands (lines of /etc/waru/sudo_commands, run as root by the privileged helper) ---
+// --- Admin commands (lines of /etc/waru/sudo-commands, run as root by the privileged helper) ---
 
 export interface AdminCommand {
     command_id: string,
@@ -183,6 +183,14 @@ export type AdminCommandRunEvent =
 
 
 // --- Authentication (Firebase sign-in, authorized by /etc/waru/auth-accounts) ---
+
+// Public Firebase web-app config from GET /auth/config, fetched before the app mounts
+export interface FirebaseWebConfig {
+    api_key: string,
+    auth_domain: string,
+    project_id: string,
+    app_id: string
+}
 
 export interface AuthStatus {
     email: string,

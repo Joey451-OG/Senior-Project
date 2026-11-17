@@ -4,7 +4,7 @@ Unprivileged front for the privileged helpers:
     - process helper       (src/privileged/AdminProcesses.py), which only kills non-root processes
     - log-off helper       (src/privileged/AdminLogoff.py), which ends every process of one non-root user
     - run-commands helper  (src/privileged/AdminRunCommands.py), which only runs the commands
-                           listed in /etc/waru/sudo_commands
+                           listed in /etc/waru/sudo-commands
 
 Both helpers are stateless: they only answer commands over their Unix sockets,
 using the same one-JSON-line-per-request protocol. For cron, this router owns
@@ -259,7 +259,7 @@ def registerCronPollJob(scheduler: AsyncIOScheduler, poll_interval_seconds: int 
 
 class AdminCommandsTracker:
     """
-    Bumps a version counter whenever the list of commands in /etc/waru/sudo_commands
+    Bumps a version counter whenever the list of commands in /etc/waru/sudo-commands
     changes (a line added, removed, edited or reordered) or the helper starts or stops
     refusing the file.
     """
@@ -525,7 +525,7 @@ async def streamAdminCommandChanges(last_event_id: Optional[str] = Header(defaul
 @p_api_endpoint_router.post("/commands/{command_id}/run")
 async def runAdminCommand(command_id: str = Path(pattern="^[0-9a-f]{64}$")) -> StreamingResponse:
     """
-    Runs one command from /etc/waru/sudo_commands as root and streams its output as
+    Runs one command from /etc/waru/sudo-commands as root and streams its output as
     newline-delimited JSON, one helper event per line ("started", "output"..., then
     "finished", or {"ok": false, "error"} if it failed mid-run). Errors before the
     command starts are ordinary HTTP errors (404 unknown id, 403 unsafe file, 503

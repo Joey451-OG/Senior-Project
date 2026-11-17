@@ -13,6 +13,9 @@ touches this file. A user passes only when their token:
     - is a valid Firebase ID token for this project
     - was issued after a second-factor sign-in (Firebase can't force enrollment itself)
     - carries a verified email that is listed in /etc/waru/auth-accounts
+
+/auth/config is the one route anyone may call: the frontend needs the Firebase web-app
+config before it can show the sign-in page.
 """
 
 import logging
@@ -26,8 +29,10 @@ from firebase_admin import auth, credentials
 from starlette.requests import HTTPConnection
 
 from AuthAccounts import AuthAccountsFileError, readAuthorizedEmails
-from PROJECTTypes import AuthStatus, SessionRequest
-from ServerSettings import firebase_project_id, frontend_origins, is_session_cookie_secure
+from PROJECTTypes import AuthStatus, FirebaseWebConfig, SessionRequest
+from ServerSettings import (
+    allowed_origins, firebase_project_id, firebase_web_config, is_session_cookie_secure, missing_firebase_variables,
+)
 
 logger = logging.getLogger("auth")
 
@@ -46,10 +51,9 @@ class AnonymousCredential(credentials.Base):
         return google.auth.credentials.AnonymousCredentials()
 
 
+# ServerSettings has already logged which Firebase variables are missing
 if firebase_project_id:
     firebase_admin.initialize_app(AnonymousCredential(), options={"projectId": firebase_project_id})
-else:
-    logger.error("FIREBASE_PROJECT_ID is not set; every sign-in will be refused")
 
 
 class AuthFailure(Exception):
@@ -68,7 +72,7 @@ def checkOrigin(connection: HTTPConnection) -> None:
     that send none (curl, websocat) aren't browsers and so don't hold the cookie.
     """
     origin = connection.headers.get("origin")
-    if origin is not None and origin not in frontend_origins:
+    if origin is not None and origin not in allowed_origins:
         raise AuthFailure(status.HTTP_403_FORBIDDEN, "Origin not allowed")
 
 
@@ -131,6 +135,7 @@ def requireAdministrator(connection: HTTPConnection) -> dict:
     alike; a refused WebSocket is closed with 1008 (policy violation). Sync on purpose:
     FastAPI runs it in a thread, since a token check may have to fetch certificates.
     """
+    claims = {}
     try:
         checkOrigin(connection)
         claims = verifyFirebaseToken(connection.cookies.get(session_cookie_name))
@@ -141,9 +146,22 @@ def requireAdministrator(connection: HTTPConnection) -> dict:
     return claims
 
 
-# --- Routes (final paths: /auth/session, /auth/me, /auth/logout) ---
+# --- Routes (final paths: /auth/config, /auth/session, /auth/me, /auth/logout) ---
 
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"], dependencies=[Depends(requireAllowedOrigin)])
+
+
+@auth_router.get("/config", response_model=FirebaseWebConfig)
+def getFirebaseWebConfig(response: Response) -> FirebaseWebConfig:
+    """
+    Public on purpose (nobody is signed in yet when the page loads), so it returns only the
+    four web-app fields, never anything else from the environment. no-cache makes browsers
+    check back each load, so a changed config applies after a service restart.
+    """
+    if missing_firebase_variables:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Authentication is not configured on the server")
+    response.headers["Cache-Control"] = "no-cache"
+    return FirebaseWebConfig(**firebase_web_config)
 
 
 @auth_router.post("/session", response_model=AuthStatus)

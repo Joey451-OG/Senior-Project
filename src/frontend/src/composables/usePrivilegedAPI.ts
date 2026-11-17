@@ -10,9 +10,8 @@ import {
     type KilledProcess,
     type LoggedOffUser
 } from '@/globals/projectTypes'
-import { domain, port } from "@/globals/projectVars";
+import { papi_url } from "@/globals/projectVars";
 
-const papi_url: string = `http://${domain}:${port}/papi`
 // Every request carries the session cookie (credentials: 'include'); the API refuses any without it.
 
 // FastAPI errors carry a readable {"detail": "..."} body
@@ -141,7 +140,7 @@ export function useAdminCommands() {
         }
     }
 
-    // The backend polls /etc/waru/sudo_commands and pushes "commands_changed" when its
+    // The backend polls /etc/waru/sudo-commands and pushes "commands_changed" when its
     // commands change, so lines added to or removed from the file show up on their own.
     const { data: eventData, status } = useEventSource(`${papi_url}/commands/events`, ['commands_changed'] as const, {
         // Sends the session cookie, which the API requires

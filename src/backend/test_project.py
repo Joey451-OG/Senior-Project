@@ -6,11 +6,16 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import AuthAccounts
+import ServerSettings
 from routes import AuthRoute
 from main import api
 
 administrator_email = "admin@example.com"
 allowed_origin = "http://localhost:3001"
+firebase_web_config = {
+    "api_key": "test-api-key", "auth_domain": "test-project.firebaseapp.com",
+    "project_id": "test-project", "app_id": "1:123:web:abc",
+}
 
 
 # --- Fixtures ---
@@ -41,6 +46,9 @@ def fakeFirebase(monkeypatch):
         return tokens[id_token]
 
     monkeypatch.setattr(AuthRoute, "firebase_project_id", "test-project")
+    monkeypatch.setattr(AuthRoute, "allowed_origins", [allowed_origin])
+    monkeypatch.setattr(AuthRoute, "firebase_web_config", firebase_web_config)
+    monkeypatch.setattr(AuthRoute, "missing_firebase_variables", [])
     # The test client talks plain http, which drops Secure cookies (the dev script does the same).
     monkeypatch.setattr(AuthRoute, "is_session_cookie_secure", False)
     monkeypatch.setattr(AuthRoute.auth, "verify_id_token", verifyIdToken)
@@ -126,6 +134,32 @@ def test_SessionRefusesIncompleteSignIn(client, token, detail):
     response = client.post("/auth/session", json={"id_token": token})
     assert response.status_code == 403
     assert response.json()["detail"] == detail
+
+
+def test_AllowedOriginsParsing(monkeypatch):
+    monkeypatch.setenv("WARU_ALLOWED_ORIGINS", " https://dash.example.com/ ,, localhost:3001,http://localhost:3001")
+    # Trailing slash dropped (browsers never send one); an origin without a scheme is skipped
+    assert ServerSettings.readOrigins("WARU_ALLOWED_ORIGINS") == ["https://dash.example.com", "http://localhost:3001"]
+
+
+def test_ConfigNeedsNoSignIn(client):
+    response = client.get("/auth/config")
+    assert response.status_code == 200
+    # Exactly the four public fields, nothing else from the environment
+    assert response.json() == firebase_web_config
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_ConfigWhenFirebaseIsNotConfigured(client, monkeypatch):
+    monkeypatch.setattr(AuthRoute, "missing_firebase_variables", ["FIREBASE_API_KEY"])
+    response = client.get("/auth/config")
+    assert response.status_code == 503
+    # Names of missing variables are for the server log, not the browser
+    assert "FIREBASE_API_KEY" not in response.text
+
+
+def test_ConfigRefusesForeignOrigin(client):
+    assert client.get("/auth/config", headers={"Origin": "http://evil.example.com"}).status_code == 403
 
 
 def test_SessionRefusesInvalidToken(client):

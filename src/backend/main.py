@@ -1,9 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
  
-from ServerSettings import frontend_origins
 from routes.AuthRoute import auth_router
 from routes.WebsocketRoute import websocket_router, registerBroadcastJobs
 from routes.PrivilegedAPIEndpointRoute import (
@@ -33,15 +31,9 @@ async def lifespan(application: FastAPI):
  
 api = FastAPI(lifespan=lifespan)
 
-# frontend_origins (ServerSettings.py) are the Vite dev server's origins. Credentials are
-# allowed so the browser sends the session cookie with fetch/EventSource requests.
-api.add_middleware(
-    CORSMiddleware,
-    allow_origins=frontend_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware: the browser only ever reaches this API through the page's own origin
+# (the reverse proxy when deployed, Vite's dev-server proxy in development), so every
+# request is same-origin. Origins are still checked, by the auth router (WARU_ALLOWED_ORIGINS).
 api.include_router(auth_router)
 api.include_router(websocket_router)
 api.include_router(p_api_endpoint_router)  

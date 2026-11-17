@@ -9,12 +9,12 @@ import {
     type LoggedInUser,
     type LoggedInUsersPacket
 } from '@/globals/projectTypes'
-import { domain, port } from "@/globals/projectVars";
+import { ws_url as ws_base_url } from "@/globals/projectVars";
 
 export function useTemperatureReading() {
     const data = ref<TemperatureReading | null>(null)
 
-    const ws_url: string = `ws://${domain}:${[port]}/ws/cpu-temp`
+    const ws_url: string = `${ws_base_url}/cpu-temp`
 
     const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
@@ -47,7 +47,7 @@ export function useTemperatureReading() {
 export function useLoadReading() {
     const data = ref<LoadReading | null>(null)
 
-    const ws_url: string = `ws://${domain}:${[port]}/ws/cpu-load`
+    const ws_url: string = `${ws_base_url}/cpu-load`
 
     const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
@@ -80,7 +80,7 @@ export function useLoadReading() {
 export function useMemoryReading() {
     const data = ref<MemoryReading | null>(null)
 
-    const ws_url: string = `ws://${domain}:${port}/ws/memory`
+    const ws_url: string = `${ws_base_url}/memory`
 
     const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
@@ -112,7 +112,7 @@ export function useMemoryReading() {
 
 export function useUserProcs() {
     const data = ref<UserProc[] | null>(null)
-    const ws_url: string = `ws://${domain}:${port}/ws/user-procs`
+    const ws_url: string = `${ws_base_url}/user-procs`
 
     const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {
@@ -154,7 +154,7 @@ export function useUserProcs() {
 
 export function useLoggedInUsers() {
     const data = ref<LoggedInUser[] | null>(null)
-    const ws_url: string = `ws://${domain}:${port}/ws/logged-in-users`
+    const ws_url: string = `${ws_base_url}/logged-in-users`
 
     const { status, close, open } = useWebSocket(ws_url, {
         autoReconnect: {

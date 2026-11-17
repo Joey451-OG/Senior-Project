@@ -4,7 +4,7 @@
     import { type AdminCommand, type AdminCommandResult, type AdminCommandRunEvent } from '@/globals/projectTypes'
     import StatusPill from './StatusPill.vue'
 
-    // The list re-fetches itself whenever /etc/waru/sudo_commands changes
+    // The list re-fetches itself whenever /etc/waru/sudo-commands changes
     const { listing, error, status } = useAdminCommands()
 
     // --- Terminal ---
@@ -175,12 +175,12 @@
 
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="listing?.error" class="error">
-            {{ listing.error }} <span class="mono">(/etc/waru/sudo_commands)</span>
+            {{ listing.error }} <span class="mono">(/etc/waru/sudo-commands)</span>
         </p>
 
         <div v-if="!listing && !error" class="placeholder">Loading commands…</div>
         <div v-else-if="listing && !listing.error && listing.commands.length === 0" class="placeholder">
-            No commands in <span class="mono">/etc/waru/sudo_commands</span>
+            No commands in <span class="mono">/etc/waru/sudo-commands</span>
         </div>
 
         <TransitionGroup v-else-if="listing" tag="ul" name="command" class="commands">
