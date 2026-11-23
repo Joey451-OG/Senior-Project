@@ -1,0 +1,46 @@
+# The web-facing API, run as the unprivileged `waru` service account. It reaches the root helpers
+# only through their Unix sockets in /run/waru-dashboard, which the `waru` group may open.
+# Started by waru.target; installed to /etc/systemd/system by install.sh.
+[Unit]
+Description=Waru dashboard API
+Documentation=https://github.com/Joey451-OG/Senior-Project
+PartOf=waru.target
+# Ordered after the helpers but not requiring them: until a helper is up, the API answers its
+# routes with 503 "Privileged helper unavailable" and reconnects on its own.
+After=network.target
+After=waru-helper@AdminCron.service waru-helper@AdminProcesses.service
+After=waru-helper@AdminLogoff.service waru-helper@AdminRunCommands.service
+
+[Service]
+Type=exec
+User=waru
+Group=waru
+EnvironmentFile=/etc/waru/waru.env
+ExecStart=/opt/waru/start-backend.sh
+Restart=on-failure
+RestartSec=2
+UMask=0077
+
+# Sandbox. The API needs no capabilities and writes no files. It does need to see every process
+# (process table, logged-in users), so ProtectProc/ProcSubset/PrivateUsers are deliberately unset;
+# it talks to logind over D-Bus (loginctl) and to Google over HTTPS (Firebase token certificates).
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

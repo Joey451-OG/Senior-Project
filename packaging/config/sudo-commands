@@ -1,0 +1,7 @@
+# Commands the dashboard may run, one per line. '#' starts a comment.
+# WARNING: every line runs as ROOT (through /bin/sh -c) when an administrator clicks Run.
+#   - Don't put sudo in front of them; they already run as root.
+#   - They can't answer prompts (stdin is /dev/null), so add -y or similar where needed.
+#   - This file must stay root:root, mode 0644, or Waru refuses all of it.
+#
+# apt update

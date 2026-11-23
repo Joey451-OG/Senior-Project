@@ -1,0 +1,28 @@
+# One privileged helper, run as root; the instance name picks which:
+#   waru-helper@AdminCron         read and edit users' crontabs
+#   waru-helper@AdminProcesses    signal non-root processes
+#   waru-helper@AdminLogoff       log off a non-root user
+#   waru-helper@AdminRunCommands  run the commands listed in /etc/waru/sudo-commands
+# Each listens on a socket in /run/waru-dashboard (created by /etc/tmpfiles.d/waru.conf) that only
+# the `waru` group may open. Sandbox settings are per helper, in waru-helper@<name>.service.d/;
+# AdminRunCommands has none, since the commands an administrator lists (apt, systemctl, ...) can
+# need the whole system. Started by waru.target; installed to /etc/systemd/system by install.sh.
+[Unit]
+Description=Waru dashboard privileged helper (%i)
+Documentation=https://github.com/Joey451-OG/Senior-Project
+PartOf=waru.target
+After=systemd-tmpfiles-setup.service
+
+[Service]
+Type=exec
+# Optional here: only the *_HELPER_SOCKET / *_HELPER_USER_GROUP / RUN_COMMANDS_HELPER_TIMEOUT_SECONDS
+# overrides matter to the helpers, and the API reads the same file, so the socket paths always agree.
+EnvironmentFile=-/etc/waru/waru.env
+ExecStart=/opt/waru/start-privileged-helper.sh %i
+Restart=on-failure
+RestartSec=2
+UMask=0077
+# SIGTERM goes to the helper alone, which removes its socket and kills any admin command still
+# running; anything left after it exits (a command's stray background child) is then SIGKILLed.
+KillMode=mixed
+TimeoutStopSec=15

@@ -1,0 +1,8 @@
+# Waru administrators: one e-mail address per line. '#' starts a comment.
+# Each must be the e-mail of a Firebase account in this dashboard's project, with a verified
+# address and an authenticator app (TOTP) enrolled.
+#
+# WARNING: everyone listed here can run the commands in /etc/waru/sudo-commands as ROOT,
+# kill any non-root process, log users off, and edit any non-root user's crontab.
+#
+# user@example.com

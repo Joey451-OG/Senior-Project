@@ -1,0 +1,22 @@
+# Everything for development: the service's packages plus the dev server and test tools.
+#   .venv/bin/pip install -r dev-requirements.txt
+
+-r requirements.txt
+
+# `fastapi dev` in run-backend-dev.sh
+fastapi-cli==0.0.32
+
+# Tests (src/backend/test_project.py)
+pytest==9.1.1
+
+# Pulled in by the packages above
+iniconfig==2.3.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
+packaging==26.3
+pluggy==1.6.0
+Pygments==2.21.0
+rich==15.0.0
+rich-toolkit==0.20.3
+shellingham==1.5.4
+typer==0.27.2

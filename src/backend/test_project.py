@@ -2,13 +2,15 @@ import os
 import time
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import AuthAccounts
 import ServerSettings
 from routes import AuthRoute
-from main import api
+from main import api, mountFrontend
+from routes.WebsocketRoute import websocket_router
 
 administrator_email = "admin@example.com"
 allowed_origin = "http://localhost:3001"
@@ -236,3 +238,50 @@ def test_MemoryWebSocket(client):
         assert data["type"] == "memory"
         assert 0 <= data["percent"] <= 100
         assert 0 < data["used"] <= data["total"]
+
+
+# --- Built frontend (served by the API when installed as a service) ---
+
+@pytest.fixture
+def frontendClient(fakeFirebase, tmp_path):
+    """An app like the installed one: every router, then the built frontend mounted at /."""
+    (tmp_path / "index.html").write_text("<!doctype html><title>Waru</title>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "index-abc123.js").write_text("console.log('waru')")
+    application = FastAPI()
+    application.include_router(AuthRoute.auth_router)
+    application.include_router(websocket_router)
+    mountFrontend(application, str(tmp_path))
+    with TestClient(application) as test_client:
+        yield test_client
+
+
+def test_FrontendIndexIsRevalidated(frontendClient):
+    response = frontendClient.get("/")
+    assert response.status_code == 200
+    assert "<title>Waru</title>" in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_FrontendHashedAssetsAreCachedForGood(frontendClient):
+    response = frontendClient.get("/assets/index-abc123.js")
+    assert response.status_code == 200
+    assert "immutable" in response.headers["cache-control"]
+
+
+def test_FrontendMissingAssetIsNotCached(frontendClient):
+    response = frontendClient.get("/assets/index-gone.js")
+    assert response.status_code == 404
+    assert "immutable" not in response.headers.get("cache-control", "")
+
+
+def test_RoutesTakePrecedenceOverFrontend(frontendClient):
+    response = frontendClient.get("/auth/config", headers={"Origin": allowed_origin})
+    assert response.status_code == 200
+    assert response.json() == firebase_web_config
+
+
+def test_UnknownWebSocketPathIsRefused(frontendClient):
+    with pytest.raises(WebSocketDisconnect):
+        with frontendClient.websocket_connect("/ws/no-such-feed", headers={"Origin": allowed_origin}):
+            pass

@@ -1,0 +1,11 @@
+# Waru as a whole: `systemctl start|stop|restart|status waru.target`.
+# Installed to /etc/systemd/system by install.sh; enabling it starts Waru at boot.
+[Unit]
+Description=Waru system administration dashboard
+Documentation=https://github.com/Joey451-OG/Senior-Project
+Wants=waru-api.service
+Wants=waru-helper@AdminCron.service waru-helper@AdminProcesses.service
+Wants=waru-helper@AdminLogoff.service waru-helper@AdminRunCommands.service
+
+[Install]
+WantedBy=multi-user.target

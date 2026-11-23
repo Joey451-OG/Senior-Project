@@ -1,4 +1,10 @@
-User, who is assumed to be sudo, will need to exist within the "waru" group.
+Two ways to run Waru:
+  - Development: run-privilged-helper.sh + run-backend-dev.sh + `npm run dev` (steps 1-8 below). The
+    user running them, who is assumed to be a sudoer, must be in the "waru" group.
+  - Installed as a systemd service: install.sh ("Installing as a service", further down). The API then
+    runs as its own `waru` service account; nobody else needs to be in the group.
+Both use the same Firebase setup (steps 1-4), sockets (/run/waru-dashboard) and port 3002 by default,
+so stop one before starting the other on the same machine.
 
 Authentication (Firebase, with a required TOTP second factor)
 ------------------------------------------------------------
@@ -12,7 +18,7 @@ Authentication (Firebase, with a required TOTP second factor)
    Generate new private key, then:
        GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json .venv/bin/python scripts/enable-firebase-totp.py
    Delete the key afterwards; the dashboard itself doesn't use one.
-5. Config file .env (gitignored; copy .env.example):
+5. Development config file .env (gitignored; copy .env.example):
        FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_PROJECT_ID, FIREBASE_APP_ID
        WARU_ALLOWED_ORIGINS   origins the dashboard is opened from, comma-separated
                               (e.g. http://jgsps.cs.olemiss.edu:3001)
@@ -29,3 +35,76 @@ Authentication (Firebase, with a required TOTP second factor)
 8. Open the dashboard at the Vite dev server (e.g. http://jgsps.cs.olemiss.edu:3001). The API listens on
    127.0.0.1:3002 only and is reached through Vite's proxy, so page and API are one origin. That origin
    must be listed in WARU_ALLOWED_ORIGINS.
+
+
+Installing as a service
+-----------------------
+install.sh sets up systemd units that start Waru at boot, run the API as the unprivileged `waru`
+service account and the four helpers as root. Needs systemd, Python >= 3.10 with venv (Debian/Ubuntu:
+apt install python3-venv), Node ^22.18 or >= 24.12 with npm (to build the frontend), cron.
+
+1. Install (or upgrade: running it again replaces the code and restarts, keeping /etc/waru):
+       ./install.sh                     run as yourself; it builds the frontend, then asks for sudo
+       ./install.sh --env-file .env     start /etc/waru/waru.env from your development .env
+   What it creates:
+       /opt/waru                    code, Python venv, built frontend, start-*.sh, uninstall.sh
+       /etc/waru/waru.env           the settings from step 5 (root:waru 0640); also WARU_PORT
+       /etc/waru/auth-accounts      step 6, created empty if missing
+       /etc/waru/sudo-commands      step 7, created empty if missing
+       waru.target                  starts/stops everything below; enabled at boot
+       waru-api.service             start-backend.sh: uvicorn on 127.0.0.1:${WARU_PORT:-3002}, serving
+                                    the API and the built frontend
+       waru-helper@AdminCron.service, @AdminProcesses, @AdminLogoff, @AdminRunCommands
+                                    start-privileged-helper.sh <name>, as root
+2. Settings: sudoedit /etc/waru/waru.env, then sudo systemctl restart waru.target.
+   WARU_ALLOWED_ORIGINS must be the reverse proxy's address (e.g. https://jgsps.cs.olemiss.edu), and
+   that host must be in Firebase's authorized domains. Leave WARU_COOKIE_SECURE unset.
+   Turning on TOTP (step 4) works with the installed venv too:
+       GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json /opt/waru/venv/bin/python scripts/enable-firebase-totp.py
+3. HTTPS: Waru only speaks plain HTTP on 127.0.0.1, so a reverse proxy on the same machine must serve
+   HTTPS and forward everything (/, /auth, /papi, /ws) to it. It must pass WebSockets through and not
+   buffer responses (cron/commands change events and admin command output are streamed).
+   Caddy (gets and renews a certificate by itself):
+       jgsps.cs.olemiss.edu {
+           reverse_proxy 127.0.0.1:3002 {
+               flush_interval -1
+           }
+       }
+   nginx (certificate from elsewhere):
+       map $http_upgrade $connection_upgrade {   # WebSocket upgrades get "upgrade", the rest "close"
+           default upgrade;
+           ''      close;
+       }
+       server {
+           listen 443 ssl;
+           server_name jgsps.cs.olemiss.edu;
+           ssl_certificate     /etc/ssl/certs/waru.pem;
+           ssl_certificate_key /etc/ssl/private/waru.key;
+           location / {
+               proxy_pass http://127.0.0.1:3002;
+               proxy_http_version 1.1;
+               proxy_set_header Host $host;
+               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+               proxy_set_header X-Forwarded-Proto $scheme;
+               proxy_set_header Upgrade $http_upgrade;
+               proxy_set_header Connection $connection_upgrade;
+               proxy_buffering off;
+               proxy_read_timeout 1h;   # long, quiet admin commands and idle event streams
+           }
+       }
+4. Day to day:
+       systemctl status waru.target                    everything at a glance
+       journalctl -u 'waru-*' -f                       all logs
+       sudo systemctl restart waru.target              after editing waru.env
+   auth-accounts and sudo-commands are re-read on every request; no restart needed.
+5. Uninstall:
+       sudo /opt/waru/uninstall.sh            keeps /etc/waru (settings, administrators, commands)
+       sudo /opt/waru/uninstall.sh --purge    also deletes /etc/waru, and the waru user/group if
+                                              install.sh created them
+   (./uninstall.sh in the repository does the same.)
+
+Sandboxing: the units restrict what each process can touch (waru-api.service, and the drop-ins in
+/etc/systemd/system/waru-helper@<name>.service.d/sandbox.conf). AdminRunCommands is deliberately not
+sandboxed, since the commands an administrator lists can need the whole system. If a sandbox setting
+gets in the way on some distro, override it with `sudo systemctl edit <unit>`; `systemd-analyze
+security <unit>` shows what's in effect.
