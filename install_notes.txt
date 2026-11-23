@@ -40,17 +40,28 @@ Authentication (Firebase, with a required TOTP second factor)
 Installing as a service
 -----------------------
 install.sh sets up systemd units that start Waru at boot, run the API as the unprivileged `waru`
-service account and the four helpers as root. Needs systemd, Python >= 3.10 with venv (Debian/Ubuntu:
-apt install python3-venv), Node ^22.18 or >= 24.12 with npm (to build the frontend), cron.
+service account and the four helpers as root. Needs systemd, git, Python >= 3.10 with venv
+(Debian/Ubuntu: apt install git python3-venv), Node ^22.18 or >= 24.12 with npm (to build the
+frontend), cron. Only install.sh itself needs downloading: it clones the repository from GitHub into a
+temporary directory in /tmp (deleted afterwards) and installs from there.
 
-1. Install (or upgrade: running it again replaces the code and restarts, keeping /etc/waru):
-       ./install.sh                     run as yourself; it builds the frontend, then asks for sudo
-       ./install.sh --env-file .env     start /etc/waru/waru.env from your development .env
+1. Install (or upgrade: running it again replaces the code and restarts, keeping /etc/waru). Run it as
+   yourself, not with sudo; it builds the frontend with your Node, then asks for sudo:
+       curl -fsSLO https://raw.githubusercontent.com/Joey451-OG/Senior-Project/main/install.sh
+       bash install.sh
+   Options:
+       --branch NAME          install a branch or tag other than main
+       --repo URL             clone from somewhere else (e.g. a fork)
+       --source DIR           install from an existing checkout instead of cloning, exactly as it is
+                              on disk, uncommitted changes included (development: ./install.sh --source .)
+       --env-file FILE        start /etc/waru/waru.env from FILE, e.g. a development .env
+       --add-to-group USER    add USER to the waru group (only for running the run-*.sh dev scripts)
    What it creates:
-       /opt/waru                    code, Python venv, built frontend, start-*.sh, uninstall.sh
+       /opt/waru                    code, Python venv, built frontend, start-*.sh, uninstall.sh, this
+                                    file, scripts/enable-firebase-totp.py
        /etc/waru/waru.env           the settings from step 5 (root:waru 0640); also WARU_PORT
-       /etc/waru/auth-accounts      step 6, created empty if missing
-       /etc/waru/sudo-commands      step 7, created empty if missing
+       /etc/waru/auth-accounts      step 6, created with explanatory comments only if missing
+       /etc/waru/sudo-commands      step 7, created with explanatory comments only if missing
        waru.target                  starts/stops everything below; enabled at boot
        waru-api.service             start-backend.sh: uvicorn on 127.0.0.1:${WARU_PORT:-3002}, serving
                                     the API and the built frontend
@@ -60,7 +71,7 @@ apt install python3-venv), Node ^22.18 or >= 24.12 with npm (to build the fronte
    WARU_ALLOWED_ORIGINS must be the reverse proxy's address (e.g. https://jgsps.cs.olemiss.edu), and
    that host must be in Firebase's authorized domains. Leave WARU_COOKIE_SECURE unset.
    Turning on TOTP (step 4) works with the installed venv too:
-       GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json /opt/waru/venv/bin/python scripts/enable-firebase-totp.py
+       GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json /opt/waru/venv/bin/python /opt/waru/scripts/enable-firebase-totp.py
 3. HTTPS: Waru only speaks plain HTTP on 127.0.0.1, so a reverse proxy on the same machine must serve
    HTTPS and forward everything (/, /auth, /papi, /ws) to it. It must pass WebSockets through and not
    buffer responses (cron/commands change events and admin command output are streamed).
@@ -101,7 +112,9 @@ apt install python3-venv), Node ^22.18 or >= 24.12 with npm (to build the fronte
        sudo /opt/waru/uninstall.sh            keeps /etc/waru (settings, administrators, commands)
        sudo /opt/waru/uninstall.sh --purge    also deletes /etc/waru, and the waru user/group if
                                               install.sh created them
-   (./uninstall.sh in the repository does the same.)
+   A plain uninstall removes /opt/waru, uninstall.sh included; to --purge afterwards, download it again:
+       curl -fsSLO https://raw.githubusercontent.com/Joey451-OG/Senior-Project/main/uninstall.sh
+       sudo bash uninstall.sh --purge
 
 Sandboxing: the units restrict what each process can touch (waru-api.service, and the drop-ins in
 /etc/systemd/system/waru-helper@<name>.service.d/sandbox.conf). AdminRunCommands is deliberately not

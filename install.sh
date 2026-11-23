@@ -1,11 +1,15 @@
 #!/bin/bash
 # Installs Waru as a systemd service, or upgrades an existing install in place.
 #
-#   ./install.sh [--env-file FILE] [--add-to-group USER]...
+#   curl -fsSLO https://raw.githubusercontent.com/Joey451-OG/Senior-Project/main/install.sh
+#   bash install.sh [--env-file FILE] [--add-to-group USER]... [--branch NAME]
 #
-# Run it from the repository as your normal user: it builds the frontend with your own Node/npm,
-# then asks for sudo for everything else. What it sets up:
-#   /opt/waru                   the code, a Python venv, the built frontend, start-*.sh, uninstall.sh
+# Only this script needs downloading. Run it as your normal user: it clones the repository from
+# GitHub into a temporary directory in /tmp, builds the frontend there with your own Node/npm, asks
+# for sudo to install, and deletes the clone when it's done. Needs git, Node ^22.18 or >=24.12 with
+# npm, Python >= 3.10 with venv, systemd. What it sets up:
+#   /opt/waru                   the code, a Python venv, the built frontend, start-*.sh, uninstall.sh,
+#                               install_notes.txt, scripts/enable-firebase-totp.py
 #   /etc/waru/waru.env          settings: Firebase web config, allowed origins, port (kept if present)
 #   /etc/waru/auth-accounts     administrator e-mails, one per line   (created from packaging/config/
 #   /etc/waru/sudo-commands     root commands the dashboard may run    with comments only; never replaced)
@@ -20,9 +24,13 @@
 #   --add-to-group USER   also add USER to the `waru` group (repeatable). Only needed for running the
 #                         development servers (run-*.sh) against the helpers; members of the group
 #                         can use the root helpers' sockets directly, so add only administrators.
+#   --branch NAME         install this branch or tag instead of main
+#   --repo URL            clone from URL instead of the GitHub repository (e.g. a fork)
+#   --source DIR          install from an existing checkout instead of cloning, exactly as it is on
+#                         disk, uncommitted changes included (for development)
 #
 # Waru speaks plain HTTP on 127.0.0.1; put a reverse proxy that serves HTTPS in front of it (see
-# install_notes.txt). uninstall.sh removes it again.
+# /opt/waru/install_notes.txt). /opt/waru/uninstall.sh removes it again.
 set -Eeuo pipefail
 
 install_dir=/opt/waru
@@ -31,10 +39,12 @@ service_account=waru
 units=(waru-api.service waru-helper@AdminCron.service waru-helper@AdminProcesses.service
     waru-helper@AdminLogoff.service waru-helper@AdminRunCommands.service)
 firebase_variables=(FIREBASE_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_PROJECT_ID FIREBASE_APP_ID)
+repository_url=https://github.com/Joey451-OG/Senior-Project.git
+repository_ref=main
+# Where the temporary clone goes.
+clone_parent_dir=/tmp
 
 script_path=$(readlink -f "${BASH_SOURCE[0]}")
-repo_dir=$(dirname "$script_path")
-frontend_dir="$repo_dir/src/frontend"
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
@@ -52,6 +62,7 @@ usage() {
 
 env_file=""
 group_members=()
+repo_dir=""
 is_frontend_already_built=no
 is_build_frontend_only=no
 original_arguments=("$@")
@@ -68,6 +79,22 @@ while [ $# -gt 0 ]; do
             group_members+=("$2")
             shift 2
             ;;
+        --branch)
+            [ $# -ge 2 ] || fail "--branch needs a branch or tag name"
+            repository_ref=$2
+            shift 2
+            ;;
+        --repo)
+            [ $# -ge 2 ] || fail "--repo needs a URL"
+            repository_url=$2
+            shift 2
+            ;;
+        --source)
+            [ $# -ge 2 ] || fail "--source needs a directory"
+            [ -d "$2" ] || fail "--source: $2 is not a directory"
+            repo_dir=$(readlink -f "$2")
+            shift 2
+            ;;
         # Internal: set when this script re-runs itself under sudo or as the source tree's owner.
         --frontend-already-built) is_frontend_already_built=yes; shift ;;
         --build-frontend-only) is_build_frontend_only=yes; shift ;;
@@ -76,13 +103,52 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# --- Getting the source: a temporary clone, unless --source names a checkout ---
+
+temporary_clone_dir=""
+removeTemporaryClone() {
+    if [ -n "$temporary_clone_dir" ]; then
+        rm -rf "$temporary_clone_dir"
+    fi
+}
+
+cloneRepository() {
+    command -v git >/dev/null || fail "git is needed to download Waru (Debian/Ubuntu: apt install git)"
+    # The frontend build runs programs from node_modules, which a noexec /tmp would refuse.
+    if findmnt -no OPTIONS --target "$clone_parent_dir" 2>/dev/null | grep -qw noexec; then
+        fail "$clone_parent_dir is mounted noexec, so the frontend can't be built there.
+       Clone $repository_url somewhere else and run: bash install.sh --source DIR"
+    fi
+    # mktemp: a fresh, private (0700) directory with an unguessable name, never a fixed /tmp path.
+    temporary_clone_dir=$(mktemp -d -p "$clone_parent_dir" waru-install.XXXXXXXX)
+    trap removeTemporaryClone EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    say "Downloading Waru ($repository_ref) from $repository_url"
+    git clone --quiet --depth 1 --branch "$repository_ref" "$repository_url" "$temporary_clone_dir" ||
+        fail "couldn't clone branch or tag '$repository_ref' of $repository_url"
+    repo_dir=$temporary_clone_dir
+}
+
+# Everything the installer copies, so a wrong --source or an old --branch fails before anything changes.
+checkSourceTree() {
+    local required_path
+    for required_path in src/backend/main.py src/privileged/AdminCron.py src/frontend/package.json \
+        requirements.txt .env.example start-backend.sh start-privileged-helper.sh uninstall.sh \
+        install_notes.txt scripts/enable-firebase-totp.py packaging/systemd/waru-api.service \
+        packaging/tmpfiles.d/waru.conf packaging/config/auth-accounts packaging/config/sudo-commands; do
+        [ -e "$repo_dir/$required_path" ] ||
+            fail "$repo_dir has no $required_path; that isn't a Waru source tree this installer can use"
+    done
+}
+
 # --- Frontend build (never as root unless root owns the source tree) ---
 
 buildFrontend() {
     say "Building the frontend (src/frontend)"
     if ! command -v npm >/dev/null || ! command -v node >/dev/null; then
         fail "node and npm are needed to build the frontend (package.json asks for Node ^22.18 or >=24.12).
-       If they're installed for your user only (e.g. nvm), run ./install.sh without sudo."
+       If they're installed for your user only (e.g. nvm), run install.sh without sudo."
     fi
     local node_version major minor
     node_version=$(node -p 'process.versions.node')
@@ -91,7 +157,7 @@ buildFrontend() {
         ! { [ "$major" -eq 24 ] && [ "$minor" -ge 12 ]; } && ! [ "$major" -ge 25 ]; then
         fail "Node $node_version is too old or unsupported; the frontend needs ^22.18 or >=24.12"
     fi
-    cd "$frontend_dir"
+    cd "$repo_dir/src/frontend"
     # npm ci wipes node_modules and reinstalls it, so only when the lock file is newer than it.
     if [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
         npm ci --no-audit --no-fund
@@ -103,27 +169,41 @@ buildFrontend() {
 }
 
 if [ "$is_build_frontend_only" = yes ]; then
+    [ -n "$repo_dir" ] || fail "--build-frontend-only needs --source"
     buildFrontend
     exit 0
 fi
 
 if [ "$EUID" -ne 0 ]; then
-    # Build with this user's own PATH (nvm etc.) and file ownership, then do the rest as root.
+    # Clone and build as this user, with their own PATH (nvm etc.), then install as root. Not exec:
+    # this process stays to delete the clone afterwards, whatever happens under sudo.
+    [ -n "$repo_dir" ] || cloneRepository
+    checkSourceTree
     buildFrontend
     command -v sudo >/dev/null || fail "sudo is needed for the rest; run this script as root instead"
     say "Continuing as root"
-    exec sudo bash "$script_path" --frontend-already-built "${original_arguments[@]}"
+    sudo bash "$script_path" "${original_arguments[@]}" --source "$repo_dir" --frontend-already-built
+    exit 0
 fi
 
 if [ "$is_frontend_already_built" = no ]; then
-    # Started as root: build as whoever owns the source tree, so node_modules and dist stay theirs.
-    build_user=$(stat -c %U "$frontend_dir")
+    # Started as root. Clone as root (git runs nothing from the repository), but build as the user who
+    # ran sudo, or as the checkout's owner, so npm never runs package scripts as root unless it must.
+    if [ -z "$repo_dir" ]; then
+        cloneRepository
+        if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+            chown -R "$SUDO_USER:" "$repo_dir"
+        fi
+    fi
+    checkSourceTree
+    build_user=$(stat -c %U "$repo_dir/src/frontend")
     if [ "$build_user" = root ]; then
         buildFrontend
     else
-        runuser -u "$build_user" -- bash "$script_path" --build-frontend-only
+        runuser -u "$build_user" -- bash "$script_path" --source "$repo_dir" --build-frontend-only
     fi
 fi
+frontend_dir="$repo_dir/src/frontend"
 
 # --- From here on: root ---
 
@@ -160,7 +240,8 @@ created_group=$(readRecordValue "$account_record" created_group)
 created_user=$(readRecordValue "$account_record" created_user)
 previous_requirements_hash=$(readRecordValue "$manifest" requirements_sha256)
 requirements_hash=$(sha256sum "$repo_dir/requirements.txt" | cut -d' ' -f1)
-source_commit=$(git -c safe.directory="$repo_dir" -C "$repo_dir" describe --always --dirty 2>/dev/null || echo unknown)
+# rev-parse only reads; describe --dirty may rewrite the index, and root shouldn't write into a checkout.
+source_commit=$(git -c safe.directory="$repo_dir" -C "$repo_dir" rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 writeManifest() {
     install -d -o root -g root -m 0755 "$install_dir"
@@ -243,7 +324,10 @@ copyTree "$repo_dir/src/privileged" "$install_dir/privileged"
 copyTree "$frontend_dir/dist" "$install_dir/frontend"
 install -o root -g root -m 0755 "$repo_dir/start-backend.sh" "$repo_dir/start-privileged-helper.sh" \
     "$repo_dir/uninstall.sh" "$install_dir/"
-install -o root -g root -m 0644 "$repo_dir/requirements.txt" "$install_dir/"
+install -o root -g root -m 0644 "$repo_dir/requirements.txt" "$repo_dir/install_notes.txt" "$install_dir/"
+# One-time Firebase setup (turning on TOTP), run with the installed venv; see install_notes.txt.
+install -d -o root -g root -m 0755 "$install_dir/scripts"
+install -o root -g root -m 0644 "$repo_dir/scripts/enable-firebase-totp.py" "$install_dir/scripts/"
 
 # --- Python venv ---
 
@@ -411,7 +495,7 @@ fi
 cat <<EOF
   - Optionally list root commands the dashboard may run, one per line:
         sudoedit $config_dir/sudo-commands
-  - Point an HTTPS reverse proxy at http://127.0.0.1:$port (example in install_notes.txt),
+  - Point an HTTPS reverse proxy at http://127.0.0.1:$port (examples in $install_dir/install_notes.txt),
     and add its host name to Firebase's authorized domains.
   - After changing waru.env:  sudo systemctl restart waru.target
     Status and logs:          systemctl status waru.target; journalctl -u 'waru-*' -f

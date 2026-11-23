@@ -1,7 +1,11 @@
 #!/bin/bash
 # Removes a Waru install made by install.sh.
 #
-#   ./uninstall.sh [--purge] [--yes]          (also installed as /opt/waru/uninstall.sh)
+#   sudo /opt/waru/uninstall.sh [--purge] [--yes]
+#
+# install.sh puts this script in /opt/waru, and removing /opt/waru removes it too. To --purge after a
+# plain uninstall, download it again:
+#   curl -fsSLO https://raw.githubusercontent.com/Joey451-OG/Senior-Project/main/uninstall.sh
 #
 # Stops and disables waru.target and its five services, then removes their unit files, the
 # /run/waru-dashboard socket directory and /opt/waru.
@@ -161,5 +165,7 @@ fi
 
 say "Waru is uninstalled"
 if [ "$is_purge" = no ] && [ -d "$config_dir" ]; then
-    note "$config_dir was kept; uninstall.sh --purge (in the repository) removes it"
+    note "$config_dir was kept. To remove it later, download uninstall.sh and run it with --purge:"
+    note "  curl -fsSLO https://raw.githubusercontent.com/Joey451-OG/Senior-Project/main/uninstall.sh"
+    note "  sudo bash uninstall.sh --purge"
 fi
