@@ -64,10 +64,36 @@ systemd services under `waru.target`.
 1. In the [Firebase console](https://console.firebase.google.com/), create a project and add a
    **Web app**. Keep its config values (API key, auth domain, project ID, app ID).
 2. **Authentication → Sign-in method:** enable **Email/Password** and **Google**.
-3. **Authentication → Settings:**
-   - Upgrade to **Firebase Authentication with Identity Platform**. This is free on the Spark plan
-     and is required for two-factor sign-in.
-   - Under **Authorized domains**, add the host name you'll open Waru at, e.g. `dash.example.com`.
+3. **Authentication → Settings**, in the list on the left:
+   - **Domains → Authorized domains:** add the host name you'll open Waru at, e.g.
+     `dash.example.com`. Without it, sign-in from that address is refused.
+   - **User account management → Password policy:** set the password requirements for new accounts
+     (see [Password requirements](#password-requirements)).
+   - **User account management → User account linking:** leave the default, **Link accounts that
+     use the same email**, so signing in with Google and with a password gives one account.
+4. Upgrade the project to **Firebase Authentication with Identity Platform**, which two-factor
+   sign-in requires. It's free on the Spark plan, with a limit of 3,000 daily active users, and
+   nothing needs migrating. The upgrade is started from **Authentication → Settings**. There's no
+   separate menu entry for it: the features that need it (**Blocking functions**, **User activity
+   logging**) show a lock icon, and opening one offers the upgrade. If the project isn't upgraded,
+   the script in [step 4](#4-turn-on-authenticator-app-sign-in) reports an error.
+
+#### Password requirements
+
+Waru takes its password rules from Firebase, so you set them in one place: **Authentication →
+Settings → Password policy**.
+
+- **Rules:** require any of an uppercase letter, a lowercase letter, a number and a special character,
+  and set the minimum length (6–30 characters) and maximum length (up to 4,096). Without a policy,
+  Firebase only requires 6 characters.
+- **Enforcement:** choose **Require**, so Firebase itself refuses passwords that break the rules.
+  With **Notify**, only Waru's sign-up form enforces them.
+- **Force upgrade on sign in:** leave it off unless you mean to block existing accounts whose
+  passwords break the rules until they change them.
+
+Changing the policy later doesn't touch passwords already in use; without **Force upgrade on sign
+in**, their owners keep signing in as before. Accounts that sign in with Google have no Waru
+password, so Google's own rules apply.
 
 ### 2. Run the installer
 
@@ -160,8 +186,11 @@ without a restart. Lines starting with `#` are comments.
 ## First sign-in
 
 1. Open your Waru address (e.g. `https://dash.example.com`).
-2. Sign in with Google, or create an account with an e-mail address and password. New e-mail
-   accounts must confirm their address through the link Firebase sends.
+2. Choose **Continue with Google**, or **Create an account** with an e-mail address and password.
+   The sign-up form lists the server's password requirements and ticks each one off as you type;
+   **Create account** won't accept a password until every item is met. New e-mail accounts must then
+   confirm their address through the link Firebase sends. If you forget your password, **Forgot
+   password?** e-mails you a reset link.
 3. Set up an authenticator app (Google Authenticator, Aegis, 1Password, etc.) by scanning the QR
    code. From then on, every sign-in asks for a 6-digit code.
 4. If your e-mail isn't in `/etc/waru/auth-accounts` yet, you'll see a "not yet an administrator"
